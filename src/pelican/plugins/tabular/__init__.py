@@ -1,0 +1,3 @@
+from .tabular import register
+
+__all__ = ["register"]
