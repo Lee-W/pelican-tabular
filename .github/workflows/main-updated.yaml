@@ -10,6 +10,8 @@ jobs:
     if: "!startsWith(github.event.head_commit.message, 'bump:')"
     runs-on: ubuntu-latest
     name: "Bump version and create changelog with commitizen"
+    permissions:
+      contents: write
     steps:
       - name: Check out
         uses: actions/checkout@v6
@@ -32,3 +34,4 @@ jobs:
           tag: ${{ steps.cz.outputs.version }}
           bodyFile: "CHANGELOG.md"
           skipIfReleaseExists: true
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
