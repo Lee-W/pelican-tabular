@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pelican import signals
 from pelican.contents import Article, Page
+
+from pelican import signals
 
 try:
     import markdown as _markdown
@@ -48,7 +49,7 @@ _RESERVED = frozenset(["_places"])
 
 def _resolve_count_template(pelican_settings: dict[str, Any]) -> str:
     if "TABULAR_COUNT_TEMPLATE" in pelican_settings:
-        return pelican_settings["TABULAR_COUNT_TEMPLATE"]
+        return str(pelican_settings["TABULAR_COUNT_TEMPLATE"])
     lang = pelican_settings.get("DEFAULT_LANG", "en").lower()
     return BUILTIN_COUNT_TEMPLATES.get(
         lang, BUILTIN_COUNT_TEMPLATES.get(lang.split("-")[0], DEFAULT_COUNT_TEMPLATE)
@@ -57,7 +58,7 @@ def _resolve_count_template(pelican_settings: dict[str, Any]) -> str:
 
 def _resolve_group_count_template(pelican_settings: dict[str, Any]) -> str:
     if "TABULAR_GROUP_COUNT_TEMPLATE" in pelican_settings:
-        return pelican_settings["TABULAR_GROUP_COUNT_TEMPLATE"]
+        return str(pelican_settings["TABULAR_GROUP_COUNT_TEMPLATE"])
     lang = pelican_settings.get("DEFAULT_LANG", "en").lower()
     primary = lang.split("-")[0]
     for key in (lang, primary):
@@ -426,14 +427,14 @@ def _render_table_html(
                 )
             prev_key = cur_key
             parts.append("<tr>")
-            for key, _ in columns:
-                parts.append(f"<td>{_cell_value(row.get(key))}</td>")
+            for col_key, _ in columns:
+                parts.append(f"<td>{_cell_value(row.get(col_key))}</td>")
             parts.append("</tr>")
     else:
         for row in rows:
             parts.append("<tr>")
-            for key, _ in columns:
-                parts.append(f"<td>{_cell_value(row.get(key))}</td>")
+            for col_key, _ in columns:
+                parts.append(f"<td>{_cell_value(row.get(col_key))}</td>")
             parts.append("</tr>")
 
     parts.append("</tbody></table>")
@@ -565,7 +566,7 @@ if _HAS_MARKDOWN:
 
 else:
 
-    def _register_markdown_extension(pelican: Any) -> None:  # type: ignore[misc]
+    def _register_markdown_extension(pelican: Any) -> None:
         pass
 
 

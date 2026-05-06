@@ -6,13 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Wei Lee", email = "weilee.rx@gmail.com" }]
-keywords = [
-  "pelican",
-  "plugin",
-  "markdown",
-  "table",
-  "data",
-]
+keywords = ["pelican", "plugin", "markdown", "table", "data"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Plugins",

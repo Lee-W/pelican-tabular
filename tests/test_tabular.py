@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -496,7 +497,7 @@ def _render(**kwargs: object) -> str:
         "group_count_template": DEFAULT_GROUP_COUNT_TEMPLATE,
     }
     defaults.update(kwargs)
-    return _render_table_html(SAMPLE_ROWS, **defaults)  # type: ignore[arg-type]
+    return _render_table_html(SAMPLE_ROWS, **defaults)  # type: ignore[no-any-return]
 
 
 def test_render_uses_osm_place_list_classes() -> None:
@@ -682,8 +683,8 @@ class _FakeContent:
         self._content = text
 
 
-def _make_settings(**overrides: object) -> dict:
-    return _resolve_settings({**overrides})
+def _make_settings(**overrides: Any) -> dict[str, Any]:
+    return _resolve_settings(overrides)  # type: ignore[no-any-return]
 
 
 def test_process_content_replaces_shortcode(tmp_path: Path) -> None:
@@ -693,7 +694,7 @@ def test_process_content_replaces_shortcode(tmp_path: Path) -> None:
 
     settings = _make_settings()
     content = _FakeContent("{% table data/books.yaml %}")
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert "osm-place-list" in content._content
     assert "<td>Book A</td>" in content._content
 
@@ -706,7 +707,7 @@ def test_process_content_resolves_filename(tmp_path: Path) -> None:
     url_map = {"posts/foo.md": "https://example.com/posts/foo/"}
     settings = _make_settings()
     content = _FakeContent("{% table items.yaml %}")
-    _process_content(content, settings, tmp_path, url_map)  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, url_map)
     assert "https://example.com/posts/foo/" in content._content
 
 
@@ -718,7 +719,7 @@ def test_process_content_group_by(tmp_path: Path) -> None:
     content = _FakeContent(
         '{% table tiered.yaml group_by="tier" group_summary_at="tier" %}'
     )
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert "osm-group-header" in content._content
     assert "SSS" in content._content
 
@@ -730,7 +731,7 @@ def test_process_content_per_shortcode_field_labels(tmp_path: Path) -> None:
 
     settings = _make_settings(TABULAR_FIELD_LABELS={"title": "書名"})
     content = _FakeContent('{% table data/books.yaml field_labels="title:作品" %}')
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert "<th>作品</th>" in content._content
     assert "<th>書名</th>" not in content._content
 
@@ -742,7 +743,7 @@ def test_process_content_per_shortcode_field_labels_merge(tmp_path: Path) -> Non
 
     settings = _make_settings(TABULAR_FIELD_LABELS={"rating": "評分"})
     content = _FakeContent('{% table data/books.yaml field_labels="title:作品" %}')
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert "<th>作品</th>" in content._content
     assert "<th>評分</th>" in content._content
 
@@ -750,21 +751,21 @@ def test_process_content_per_shortcode_field_labels_merge(tmp_path: Path) -> Non
 def test_process_content_missing_file(tmp_path: Path) -> None:
     settings = _make_settings()
     content = _FakeContent("{% table missing.yaml %}")
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert "tabular-error" in content._content
 
 
 def test_process_content_no_shortcode(tmp_path: Path) -> None:
     settings = _make_settings()
     content = _FakeContent("<p>No shortcode here.</p>")
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert content._content == "<p>No shortcode here.</p>"
 
 
 def test_process_content_empty_content(tmp_path: Path) -> None:
     settings = _make_settings()
     content = _FakeContent("")
-    _process_content(content, settings, tmp_path, {})  # type: ignore[arg-type]
+    _process_content(content, settings, tmp_path, {})
     assert content._content == ""
 
 
