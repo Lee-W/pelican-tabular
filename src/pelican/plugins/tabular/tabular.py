@@ -297,13 +297,9 @@ def _parse_shortcode_args(raw: str) -> tuple[str, dict[str, str]]:
 
 def _detect_columns(rows: list[dict[str, Any]]) -> list[str]:
     seen: dict[str, None] = {}
-    warned: set[str] = set()
     for row in rows:
         for k in row:
             if k not in _RESERVED:
-                if k in seen and k not in warned:
-                    log.warning("pelican-tabular: duplicate column name %r detected", k)
-                    warned.add(k)
                 seen[k] = None
     return list(seen)
 
