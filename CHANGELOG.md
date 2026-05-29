@@ -1,3 +1,13 @@
+## 0.3.0 (2026-05-29)
+
+### Feat
+
+- **tabular**: add column anchors, HTML escaping, and data root setting
+
+### Fix
+
+- **config**: correct [tool.pytest.ini_options] table name
+
 ## 0.2.1 (2026-05-06)
 
 ### Fix
