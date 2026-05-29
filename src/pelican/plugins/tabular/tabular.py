@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import datetime
+import html
 import json
 import logging
 import re
@@ -12,6 +13,7 @@ from collections import defaultdict
 from io import StringIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 from pelican.contents import Article, Page
@@ -295,9 +297,13 @@ def _parse_shortcode_args(raw: str) -> tuple[str, dict[str, str]]:
 
 def _detect_columns(rows: list[dict[str, Any]]) -> list[str]:
     seen: dict[str, None] = {}
+    warned: set[str] = set()
     for row in rows:
         for k in row:
             if k not in _RESERVED:
+                if k in seen and k not in warned:
+                    log.warning("pelican-tabular: duplicate column name %r detected", k)
+                    warned.add(k)
                 seen[k] = None
     return list(seen)
 
@@ -312,13 +318,17 @@ def _cell_value(value: Any) -> str:
     if isinstance(value, dict):
         href = value.get("href") or value.get("url", "")
         text = value.get("text") or value.get("label") or href
-        return f'<a href="{href}">{text}</a>' if href else str(text)
+        if href:
+            safe_href = quote(str(href), safe=":/?#[]@!$&'()*+,;=")
+            safe_text = html.escape(str(text))
+            return f'<a href="{safe_href}">{safe_text}</a>'
+        return html.escape(str(text))
     if isinstance(value, list):
         if len(value) > 1:
             items = "".join(f"<li>{_cell_value(item)}</li>" for item in value)
             return f'<ul style="margin:0;padding-left:1.2em">{items}</ul>'
         return _cell_value(value[0]) if value else ""
-    return _format_scalar(value)
+    return html.escape(_format_scalar(value))
 
 
 def _render_table_html(
@@ -342,7 +352,8 @@ def _render_table_html(
     if group_by:
         if group_summary_at and group_by[: len(group_summary_at)] != group_summary_at:
             log.warning(
-                "pelican-tabular: group_summary_at must be a prefix of group_by; ignoring"
+                "pelican-tabular: group_summary_at must be a prefix of"
+                " group_by; ignoring"
             )
             group_summary_at = []
         rows = _collapse_rows(rows, group_by, aggregate)
@@ -365,13 +376,25 @@ def _render_table_html(
     col_count = len(columns)
     count_text = count_template.replace("{n}", str(len(rows)))
 
+    used_ids: set[str] = set()
+
+    def _anchor_id(prefix: str) -> str:
+        anchor = prefix
+        i = 2
+        while anchor in used_ids:
+            anchor = f"{prefix}-{i}"
+            i += 1
+        used_ids.add(anchor)
+        return anchor
+
     # Use pelican-osm's place-list classes so osm-map.js handles interactive
     # sorting and styling automatically.
     parts: list[str] = ['<div class="osm-place-list-wrapper">']
     parts.append('<table class="osm-place-list">')
     parts.append("<thead><tr>")
-    for _, label in columns:
-        parts.append(f"<th>{label}</th>")
+    for col_key, label in columns:
+        col_anchor = _anchor_id("osm-col--" + _slugify(label))
+        parts.append(f'<th id="{col_anchor}">{html.escape(label)}</th>')
     parts.append("</tr></thead>")
     parts.append("<tbody>")
 
@@ -384,18 +407,6 @@ def _render_table_html(
             key = tuple(row.get(f, "") for f in group_summary_at)
             for d in range(len(key)):
                 prefix_counts[key[: d + 1]] += n
-
-        used_ids: set[str] = set()
-
-        def _anchor_id(prefix: tuple) -> str:
-            base = "osm-group--" + "--".join(_slugify(v) for v in prefix)
-            anchor = base
-            i = 2
-            while anchor in used_ids:
-                anchor = f"{base}-{i}"
-                i += 1
-            used_ids.add(anchor)
-            return anchor
 
         prev_key: tuple = ()
         for row in rows:
@@ -415,13 +426,16 @@ def _render_table_html(
                         f"{group_count_template.replace('{n}', str(n_group))}"
                         f"</span>"
                     )
-                anchor_id = _anchor_id(prefix)
+                anchor_id = _anchor_id(
+                    "osm-group--" + "--".join(_slugify(v) for v in prefix)
+                )
                 parts.append(
                     f'<tr class="osm-group-header osm-group-header--depth-{depth}"'
                     f' data-depth="{depth}" id="{anchor_id}">'
                     f'<td colspan="{col_count}">'
                     f'<span class="osm-group-header-toggle" aria-hidden="true">▾</span>'
-                    f'<strong class="osm-group-header-title">{val}</strong>'
+                    '<strong class="osm-group-header-title">'
+                    f"{html.escape(str(val))}</strong>"
                     f"{count_html}"
                     f"</td></tr>"
                 )
@@ -467,18 +481,21 @@ def _replace_match(
         file_path, kwargs = _parse_shortcode_args(raw)
     except ValueError as exc:
         log.error("pelican-tabular: %s", exc)
-        return f'<p class="tabular-error">{exc}</p>'
+        return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
 
     full_path = data_root / file_path
     if not full_path.exists():
         log.error("pelican-tabular: data file not found: %s", full_path)
-        return f'<p class="tabular-error">Data file not found: {file_path}</p>'
+        escaped = html.escape(str(file_path))
+        return f'<p class="tabular-error">Data file not found: {escaped}</p>'
 
     try:
         rows = _load_data_file(full_path)
     except Exception as exc:
         log.error("pelican-tabular: failed to load %s: %s", full_path, exc)
-        return f'<p class="tabular-error">Failed to load {file_path}: {exc}</p>'
+        esc_path = html.escape(str(file_path))
+        esc_exc = html.escape(str(exc))
+        return f'<p class="tabular-error">Failed to load {esc_path}: {esc_exc}</p>'
 
     rows = _resolve_rows(rows, article_url_map)
 
@@ -591,7 +608,17 @@ def _init(pelican: Any) -> None:
             content_path = Path(conf_file).parent / raw_path
         content_path = content_path.resolve()
     _content_path = content_path
-    _data_root = content_path
+    raw_data_root = pelican.settings.get("TABULAR_DATA_ROOT")
+    if raw_data_root:
+        data_root_path = Path(raw_data_root)
+        if not data_root_path.is_absolute():
+            conf_file = pelican.settings.get("pelicanconf")
+            if conf_file:
+                data_root_path = Path(conf_file).parent / raw_data_root
+            data_root_path = data_root_path.resolve()
+        _data_root = data_root_path
+    else:
+        _data_root = content_path
 
     _register_markdown_extension(pelican)
 

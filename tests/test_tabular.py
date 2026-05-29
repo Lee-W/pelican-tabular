@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pytest_regressions.file_regression import FileRegressionFixture
 
 from pelican.plugins.tabular.tabular import (
     BUILTIN_COUNT_TEMPLATES,
@@ -510,7 +511,7 @@ def test_render_uses_osm_place_list_classes() -> None:
 
 def test_render_basic() -> None:
     html = _render()
-    assert "<th>title</th>" in html
+    assert ">title</th>" in html
     assert "<td>Book A</td>" in html
 
 
@@ -527,18 +528,18 @@ def test_render_sort_asc() -> None:
 def test_render_hidden_field() -> None:
     html = _render(hidden={"year"})
     assert "<th>year</th>" not in html
-    assert "<th>title</th>" in html
+    assert ">title</th>" in html
 
 
 def test_render_field_labels() -> None:
     html = _render(field_labels={"rating": "Score"})
-    assert "<th>Score</th>" in html
+    assert ">Score</th>" in html
     assert "<th>rating</th>" not in html
 
 
 def test_render_explicit_fields_ordering() -> None:
     html = _render(fields=["year", "title"])
-    assert html.index("<th>year</th>") < html.index("<th>title</th>")
+    assert html.index(">year</th>") < html.index(">title</th>")
     assert "<th>rating</th>" not in html
 
 
@@ -732,7 +733,7 @@ def test_process_content_per_shortcode_field_labels(tmp_path: Path) -> None:
     settings = _make_settings(TABULAR_FIELD_LABELS={"title": "書名"})
     content = _FakeContent('{% table data/books.yaml field_labels="title:作品" %}')
     _process_content(content, settings, tmp_path, {})
-    assert "<th>作品</th>" in content._content
+    assert ">作品</th>" in content._content
     assert "<th>書名</th>" not in content._content
 
 
@@ -744,8 +745,8 @@ def test_process_content_per_shortcode_field_labels_merge(tmp_path: Path) -> Non
     settings = _make_settings(TABULAR_FIELD_LABELS={"rating": "評分"})
     content = _FakeContent('{% table data/books.yaml field_labels="title:作品" %}')
     _process_content(content, settings, tmp_path, {})
-    assert "<th>作品</th>" in content._content
-    assert "<th>評分</th>" in content._content
+    assert ">作品</th>" in content._content
+    assert ">評分</th>" in content._content
 
 
 def test_process_content_missing_file(tmp_path: Path) -> None:
@@ -767,6 +768,23 @@ def test_process_content_empty_content(tmp_path: Path) -> None:
     content = _FakeContent("")
     _process_content(content, settings, tmp_path, {})
     assert content._content == ""
+
+
+def test_render_table_html_regression(file_regression: FileRegressionFixture) -> None:
+    html = _render_table_html(
+        SAMPLE_ROWS,
+        fields=[],
+        field_labels={"title": "Title", "rating": "Rating", "year": "Year"},
+        hidden=set(),
+        sort_by=None,
+        sort_order="asc",
+        count_template=DEFAULT_COUNT_TEMPLATE,
+        group_by=[],
+        group_summary_at=[],
+        aggregate={},
+        group_count_template=DEFAULT_GROUP_COUNT_TEMPLATE,
+    )
+    file_regression.check(html, extension=".html")
 
 
 # ---------------------------------------------------------------------------
