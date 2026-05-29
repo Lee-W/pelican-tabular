@@ -1,3 +1,9 @@
+## 0.3.1 (2026-05-29)
+
+### Fix
+
+- remove spurious duplicate-column warning in _detect_columns
+
 ## 0.3.0 (2026-05-29)
 
 ### Feat
