@@ -66,6 +66,12 @@ warn_unused_configs = true
 module = ["pelican.*"]
 ignore_missing_imports = true
 
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
 [tool.codespell]
 skip = '.git*,*.lock'
 check-hidden = true
@@ -81,10 +87,10 @@ check-commit.help = "Check the commit messages"
 check-commit.cmd = "cz --no-raise 3 check --rev-range origin/main.."
 
 test.help = "Run the test suite"
-test.cmd = "pytest -n auto --dist=loadfile"
+test.cmd = "pytest"
 
 cover.help = "Run the test suite with coverage"
-cover.ref = "test --cov-report term-missing --cov-report=xml:coverage.xml --cov=pelican.plugins.tabular --junitxml=junit.xml -o junit_family=legacy"
+cover.cmd = "pytest --cov=pelican.plugins.tabular --cov-report=term-missing --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy"
 
 all.help = "Run all tasks"
 all.sequence = ["format", "lint", "check-commit", "cover"]
@@ -104,9 +110,9 @@ version_provider = "uv"
 update_changelog_on_bump = true
 major_version_zero = true
 
-[tool.pytest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--cov=pelican.plugins.tabular", "--cov-report=term-missing"]
+addopts = ["-n", "auto", "--dist=loadfile"]
 
 [tool.coverage.run]
 source = ["pelican/plugins/tabular"]
