@@ -63,7 +63,7 @@ def test_parse_args_empty_raises() -> None:
 
 
 def test_parse_args_hidden_fields() -> None:
-    path, kwargs = _parse_shortcode_args('data/books.yaml hidden="year,difficulty"')
+    _path, kwargs = _parse_shortcode_args('data/books.yaml hidden="year,difficulty"')
     assert kwargs["hidden"] == "year,difficulty"
 
 
@@ -485,7 +485,7 @@ def test_group_count_template_fallback() -> None:
 
 
 def _render(**kwargs: object) -> str:
-    defaults: dict = {
+    defaults: dict[str, object] = {
         "fields": [],
         "field_labels": {},
         "hidden": set(),

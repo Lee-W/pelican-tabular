@@ -55,9 +55,7 @@ module-root = "src"
 
 [tool.mypy]
 files = ["src", "tests"]
-disallow_untyped_decorators = true
-disallow_subclassing_any = true
-warn_return_any = true
+strict = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_unused_configs = true
@@ -70,7 +68,7 @@ ignore_missing_imports = true
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = ["E", "F", "W", "I", "UP", "RUF"]
 
 [tool.codespell]
 skip = '.git*,*.lock'

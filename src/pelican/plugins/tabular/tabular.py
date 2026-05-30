@@ -240,9 +240,9 @@ def _collapse_rows(
     row. ``aggregate`` maps field names to ops (currently only ``year``).
     For non-aggregate fields, the first non-empty value wins.
     """
-    order: list[tuple] = []
+    order: list[tuple[str, ...]] = []
     if not aggregate:
-        buckets: dict[tuple, list[dict[str, Any]]] = {}
+        buckets: dict[tuple[str, ...], list[dict[str, Any]]] = {}
         for row in rows:
             key = tuple(row.get(g, "") for g in group_by)
             if key not in buckets:
@@ -251,7 +251,7 @@ def _collapse_rows(
             buckets[key].append(row)
         return [{**r, "_places": [r]} for key in order for r in buckets[key]]
 
-    collapsed: dict[tuple, dict[str, Any]] = {}
+    collapsed: dict[tuple[str, ...], dict[str, Any]] = {}
     for row in rows:
         key = tuple(row.get(g, "") for g in group_by)
         if key not in collapsed:
@@ -397,14 +397,14 @@ def _render_table_html(
     if group_summary_at:
         # Pre-compute place counts at every prefix depth so each header can
         # display its own subtotal regardless of how many rows it spans.
-        prefix_counts: dict[tuple, int] = defaultdict(int)
+        prefix_counts: dict[tuple[str, ...], int] = defaultdict(int)
         for row in rows:
             n = len(row.get("_places") or [row])
             key = tuple(row.get(f, "") for f in group_summary_at)
             for d in range(len(key)):
                 prefix_counts[key[: d + 1]] += n
 
-        prev_key: tuple = ()
+        prev_key: tuple[str, ...] = ()
         for row in rows:
             cur_key = tuple(row.get(f, "") for f in group_summary_at)
             for depth, val in enumerate(cur_key):
