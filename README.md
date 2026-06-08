@@ -22,7 +22,7 @@ PLUGINS = ["pelican.plugins.tabular"]
 {% table data/books.yaml sort_by="rating" sort_order="desc" %}
 {% table data/books.yaml hidden="internal_id" %}
 {% table data/books.yaml group_by="genre" group_summary_at="genre" %}
-{% table data/books.yaml group_by="author,year" aggregate="year:year" field_labels="year=Publication Year" %}
+{% table data/books.yaml group_by="author,year" aggregate="year:year" field_labels="year:Publication Year" %}
 ```
 
 ### Shortcode parameters
@@ -37,7 +37,7 @@ PLUGINS = ["pelican.plugins.tabular"]
 | `group_by` | Comma-separated fields to group rows by |
 | `group_summary_at` | Fields at which to render a collapsible group-header row with row count; must be a prefix of `group_by` |
 | `aggregate` | Comma-separated `field:op` pairs for collapsed groups (currently supports `year`) |
-| `field_labels` | Per-shortcode label overrides, formatted as `field=Label,field2=Label 2` |
+| `field_labels` | Per-shortcode label overrides, formatted as `field:Label,field2:Label 2` |
 
 ## Data formats
 
