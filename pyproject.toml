@@ -1,6 +1,6 @@
 [project]
 name = "pelican-tabular"
-version = "0.3.1"
+version = "0.4.0"
 description = "Pelican plugin to display data tables via a {% table %} shortcode."
 readme = "README.md"
 requires-python = ">=3.11"
