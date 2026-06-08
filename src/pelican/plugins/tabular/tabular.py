@@ -76,6 +76,7 @@ def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
         "field_labels": pelican_settings.get("TABULAR_FIELD_LABELS", {}),
         "count_template": _resolve_count_template(pelican_settings),
         "group_count_template": _resolve_group_count_template(pelican_settings),
+        "date_format": pelican_settings.get("TABULAR_DATE_FORMAT", ""),
         "siteurl": pelican_settings.get("SITEURL", "").rstrip("/"),
     }
 
@@ -112,8 +113,10 @@ def _slugify(value: str) -> str:
     return "".join(out).lower() or "group"
 
 
-def _format_scalar(value: Any) -> str:
+def _format_scalar(value: Any, date_format: str = "") -> str:
     if isinstance(value, (datetime.date, datetime.datetime)):
+        if date_format:
+            return value.strftime(date_format)
         return value.isoformat()
     return str(value)
 
@@ -225,6 +228,27 @@ def _resolve_rows(
 # --- grouping / collapsing (ported from pelican-osm) ------------------------
 
 
+def _field_transform(token: str) -> tuple[str, str | None]:
+    """Split a ``group_by`` token into ``(field, transform)``.
+
+    A bare ``"date"`` groups by the raw value; ``"date:year"`` groups by a
+    derived value. Currently the only transform is ``year`` (extracts the
+    year from a date/datetime/year-like value via ``_extract_year``).
+    """
+    if ":" in token:
+        field, _, transform = token.partition(":")
+        return field.strip(), transform.strip()
+    return token.strip(), None
+
+
+def _group_key_value(row: dict[str, Any], token: str) -> Any:
+    field, transform = _field_transform(token)
+    if transform == "year":
+        year = _extract_year(row.get(field))
+        return year if year is not None else ""
+    return row.get(field, "")
+
+
 def _collapse_rows(
     rows: list[dict[str, Any]],
     group_by: list[str],
@@ -244,7 +268,7 @@ def _collapse_rows(
     if not aggregate:
         buckets: dict[tuple[str, ...], list[dict[str, Any]]] = {}
         for row in rows:
-            key = tuple(row.get(g, "") for g in group_by)
+            key = tuple(_group_key_value(row, g) for g in group_by)
             if key not in buckets:
                 buckets[key] = []
                 order.append(key)
@@ -253,7 +277,7 @@ def _collapse_rows(
 
     collapsed: dict[tuple[str, ...], dict[str, Any]] = {}
     for row in rows:
-        key = tuple(row.get(g, "") for g in group_by)
+        key = tuple(_group_key_value(row, g) for g in group_by)
         if key not in collapsed:
             collapsed[key] = {**row, "_places": [row]}
             order.append(key)
@@ -304,10 +328,14 @@ def _detect_columns(rows: list[dict[str, Any]]) -> list[str]:
     return list(seen)
 
 
-def _cell_value(value: Any) -> str:
+def _cell_value(
+    value: Any, *, date_format: str = "", aria_label: str | None = None
+) -> str:
     """Render a cell value as HTML.
 
     Supports plain scalars, ``{text, href}`` link dicts, and lists of either.
+    When ``aria_label`` is set, link elements get an ``aria-label`` so that
+    icon-only link text (e.g. an emoji) still has an accessible name.
     """
     if value is None:
         return ""
@@ -317,14 +345,24 @@ def _cell_value(value: Any) -> str:
         if href:
             safe_href = quote(str(href), safe=":/?#[]@!$&'()*+,;=")
             safe_text = html.escape(str(text))
-            return f'<a href="{safe_href}">{safe_text}</a>'
+            aria = f' aria-label="{html.escape(str(aria_label))}"' if aria_label else ""
+            return f'<a href="{safe_href}"{aria}>{safe_text}</a>'
         return html.escape(str(text))
     if isinstance(value, list):
         if len(value) > 1:
-            items = "".join(f"<li>{_cell_value(item)}</li>" for item in value)
+            items = "".join(
+                "<li>"
+                + _cell_value(item, date_format=date_format, aria_label=aria_label)
+                + "</li>"
+                for item in value
+            )
             return f'<ul style="margin:0;padding-left:1.2em">{items}</ul>'
-        return _cell_value(value[0]) if value else ""
-    return html.escape(_format_scalar(value))
+        return (
+            _cell_value(value[0], date_format=date_format, aria_label=aria_label)
+            if value
+            else ""
+        )
+    return html.escape(_format_scalar(value, date_format))
 
 
 def _render_table_html(
@@ -340,7 +378,10 @@ def _render_table_html(
     group_summary_at: list[str],
     aggregate: dict[str, str],
     group_count_template: str,
+    date_format: str = "",
+    aria_columns: set[str] | None = None,
 ) -> str:
+    aria_columns = aria_columns or set()
     if sort_by:
         reverse = sort_order.lower() == "desc"
         rows = sorted(rows, key=lambda r: r.get(sort_by) or "", reverse=reverse)
@@ -390,7 +431,7 @@ def _render_table_html(
     parts.append("<thead><tr>")
     for col_key, label in columns:
         col_anchor = _anchor_id("osm-col--" + _slugify(label))
-        parts.append(f'<th id="{col_anchor}">{html.escape(label)}</th>')
+        parts.append(f'<th id="{col_anchor}" scope="col">{html.escape(label)}</th>')
     parts.append("</tr></thead>")
     parts.append("<tbody>")
 
@@ -400,13 +441,13 @@ def _render_table_html(
         prefix_counts: dict[tuple[str, ...], int] = defaultdict(int)
         for row in rows:
             n = len(row.get("_places") or [row])
-            key = tuple(row.get(f, "") for f in group_summary_at)
+            key = tuple(_group_key_value(row, f) for f in group_summary_at)
             for d in range(len(key)):
                 prefix_counts[key[: d + 1]] += n
 
         prev_key: tuple[str, ...] = ()
         for row in rows:
-            cur_key = tuple(row.get(f, "") for f in group_summary_at)
+            cur_key = tuple(_group_key_value(row, f) for f in group_summary_at)
             for depth, val in enumerate(cur_key):
                 prefix = cur_key[: depth + 1]
                 prev_prefix = (
@@ -437,14 +478,22 @@ def _render_table_html(
                 )
             prev_key = cur_key
             parts.append("<tr>")
-            for col_key, _ in columns:
-                parts.append(f"<td>{_cell_value(row.get(col_key))}</td>")
+            for col_key, col_label in columns:
+                aria = col_label if col_key in aria_columns else None
+                cell = _cell_value(
+                    row.get(col_key), date_format=date_format, aria_label=aria
+                )
+                parts.append(f"<td>{cell}</td>")
             parts.append("</tr>")
     else:
         for row in rows:
             parts.append("<tr>")
-            for col_key, _ in columns:
-                parts.append(f"<td>{_cell_value(row.get(col_key))}</td>")
+            for col_key, col_label in columns:
+                aria = col_label if col_key in aria_columns else None
+                cell = _cell_value(
+                    row.get(col_key), date_format=date_format, aria_label=aria
+                )
+                parts.append(f"<td>{cell}</td>")
             parts.append("</tr>")
 
     parts.append("</tbody></table>")
@@ -512,6 +561,9 @@ def _replace_match(
     per_labels = _parse_aggregate_kwarg(kwargs.get("field_labels", ""))
     merged_labels = {**settings["field_labels"], **per_labels}
 
+    date_format = kwargs.get("date_format") or settings["date_format"]
+    aria_columns = set(_parse_csv_kwarg(kwargs.get("aria_columns", "")))
+
     return _render_table_html(
         rows,
         fields=fields,
@@ -524,6 +576,8 @@ def _replace_match(
         group_summary_at=group_summary_at,
         aggregate=aggregate,
         group_count_template=settings["group_count_template"],
+        date_format=date_format,
+        aria_columns=aria_columns,
     )
 
 

@@ -23,6 +23,9 @@ PLUGINS = ["pelican.plugins.tabular"]
 {% table data/books.yaml hidden="internal_id" %}
 {% table data/books.yaml group_by="genre" group_summary_at="genre" %}
 {% table data/books.yaml group_by="author,year" aggregate="year:year" field_labels="year:Publication Year" %}
+{% table data/books.yaml sort_by="date" date_format="%b %Y" %}
+{% table data/books.yaml group_by="date:year" group_summary_at="date:year" %}
+{% table data/books.yaml aria_columns="slide,recording" %}
 ```
 
 ### Shortcode parameters
@@ -34,10 +37,12 @@ PLUGINS = ["pelican.plugins.tabular"]
 | `hidden` | Comma-separated list of fields to exclude from output |
 | `sort_by` | Field key to sort rows by |
 | `sort_order` | `asc` (default) or `desc` |
-| `group_by` | Comma-separated fields to group rows by |
-| `group_summary_at` | Fields at which to render a collapsible group-header row with row count; must be a prefix of `group_by` |
+| `group_by` | Comma-separated fields to group rows by. A field may use a `field:transform` form to group by a derived value (currently supports `year`, e.g. `date:year`) |
+| `group_summary_at` | Fields at which to render a collapsible group-header row with row count; must be a prefix of `group_by` (transforms allowed, e.g. `date:year`) |
 | `aggregate` | Comma-separated `field:op` pairs for collapsed groups (currently supports `year`) |
 | `field_labels` | Per-shortcode label overrides, formatted as `field:Label,field2:Label 2` |
+| `date_format` | `strftime` pattern applied to date/datetime cells, e.g. `%b %Y` → `Jun 2026` (overrides `TABULAR_DATE_FORMAT`). Sorting still uses the underlying date |
+| `aria_columns` | Comma-separated columns whose links should get an `aria-label` taken from the column header, giving icon-only link text (e.g. an emoji) an accessible name |
 
 ## Data formats
 
@@ -85,6 +90,7 @@ Link `href` values support Pelican's `{filename}` syntax to cross-reference othe
 | `TABULAR_FIELD_LABELS` | `{}` | Global map of field key → display label |
 | `TABULAR_COUNT_TEMPLATE` | `"{n} rows"` | Row-count string below the table; `{n}` is replaced with the count |
 | `TABULAR_GROUP_COUNT_TEMPLATE` | `"{n} rows"` | Count string inside group-header rows |
+| `TABULAR_DATE_FORMAT` | `""` | Global `strftime` pattern for date/datetime cells (empty = ISO format). Per-shortcode `date_format` overrides it |
 
 `TABULAR_COUNT_TEMPLATE` and `TABULAR_GROUP_COUNT_TEMPLATE` have built-in defaults for `zh` (`{n} 筆資料` / `{n} 筆`) and `ja` (`{n} 件`), derived from Pelican's `DEFAULT_LANG` setting.
 
@@ -97,6 +103,16 @@ Link `href` values support Pelican's `{filename}` syntax to cross-reference othe
 ```
 
 This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via the bundled `osm-map.js` JS.
+
+### Derived group keys
+
+A `group_by` (and `group_summary_at`) field may use a `field:transform` form to group by a value derived from the field rather than its raw value. The only transform currently supported is `year`, which extracts the year from a date/datetime:
+
+```
+{% table data/talks.yaml sort_by="date" sort_order="desc" group_by="date:year" group_summary_at="date:year" %}
+```
+
+This groups rows under a collapsible header per year while keeping the original `date` column intact. Sorting still operates on the underlying date.
 
 ### Aggregation
 

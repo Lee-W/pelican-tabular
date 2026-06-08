@@ -21,7 +21,9 @@ from pelican.plugins.tabular.tabular import (
     _detect_columns,
     _extract_year,
     _extract_years,
+    _field_transform,
     _format_scalar,
+    _group_key_value,
     _load_data_file,
     _make_pattern,
     _parse_aggregate_kwarg,
@@ -809,3 +811,148 @@ def test_pattern_captures_kwargs() -> None:
     m = pattern.search('{% table data/books.yaml sort_by="rating" %}')
     assert m is not None
     assert 'sort_by="rating"' in m.group(1)
+
+
+# ---------------------------------------------------------------------------
+# date_format (TABULAR_DATE_FORMAT / date_format kwarg)
+# ---------------------------------------------------------------------------
+
+
+def test_format_scalar_date_with_format() -> None:
+    assert _format_scalar(datetime.date(2026, 6, 2), "%b %Y") == "Jun 2026"
+
+
+def test_format_scalar_datetime_with_format() -> None:
+    assert (
+        _format_scalar(datetime.datetime(2026, 6, 2, 9, 30), "%Y/%m/%d") == "2026/06/02"
+    )
+
+
+def test_format_scalar_format_ignored_for_non_dates() -> None:
+    assert _format_scalar("hello", "%b %Y") == "hello"
+
+
+def test_cell_value_date_format() -> None:
+    assert _cell_value(datetime.date(2026, 6, 2), date_format="%b %Y") == "Jun 2026"
+
+
+def test_render_date_format_applied() -> None:
+    rows = [{"title": "Foo", "date": datetime.date(2026, 6, 2)}]
+    html = _render_table_html(
+        rows,
+        fields=["title", "date"],
+        field_labels={},
+        hidden=set(),
+        sort_by=None,
+        sort_order="asc",
+        count_template=DEFAULT_COUNT_TEMPLATE,
+        group_by=[],
+        group_summary_at=[],
+        aggregate={},
+        group_count_template=DEFAULT_GROUP_COUNT_TEMPLATE,
+        date_format="%b %Y",
+    )
+    assert "<td>Jun 2026</td>" in html
+    assert "2026-06-02" not in html
+
+
+def test_resolve_settings_date_format() -> None:
+    assert _resolve_settings({"TABULAR_DATE_FORMAT": "%b %Y"})["date_format"] == "%b %Y"
+
+
+# ---------------------------------------------------------------------------
+# aria_columns (accessible name for icon-only links)
+# ---------------------------------------------------------------------------
+
+
+def test_cell_value_aria_label() -> None:
+    value = {"text": "📊", "href": "https://example.com"}
+    html = _cell_value(value, aria_label="Slide")
+    assert '<a href="https://example.com" aria-label="Slide">📊</a>' == html
+
+
+def test_cell_value_no_aria_label_by_default() -> None:
+    value = {"text": "📊", "href": "https://example.com"}
+    assert "aria-label" not in _cell_value(value)
+
+
+def test_render_aria_columns_adds_label() -> None:
+    rows = [{"title": "Foo", "slide": {"text": "📊", "href": "https://example.com"}}]
+    html = _render_table_html(
+        rows,
+        fields=["title", "slide"],
+        field_labels={"slide": "Slide"},
+        hidden=set(),
+        sort_by=None,
+        sort_order="asc",
+        count_template=DEFAULT_COUNT_TEMPLATE,
+        group_by=[],
+        group_summary_at=[],
+        aggregate={},
+        group_count_template=DEFAULT_GROUP_COUNT_TEMPLATE,
+        aria_columns={"slide"},
+    )
+    assert 'aria-label="Slide"' in html
+
+
+def test_render_th_has_scope() -> None:
+    html = _render()
+    assert 'scope="col"' in html
+
+
+# ---------------------------------------------------------------------------
+# group_by year transform (group_by="date:year")
+# ---------------------------------------------------------------------------
+
+
+def test_field_transform_plain() -> None:
+    assert _field_transform("project") == ("project", None)
+
+
+def test_field_transform_year() -> None:
+    assert _field_transform("date:year") == ("date", "year")
+
+
+def test_group_key_value_year() -> None:
+    row = {"date": datetime.date(2026, 6, 2)}
+    assert _group_key_value(row, "date:year") == 2026
+
+
+def test_group_key_value_plain() -> None:
+    assert _group_key_value({"tier": "SSS"}, "tier") == "SSS"
+
+
+def test_collapse_rows_group_by_year() -> None:
+    rows = [
+        {"title": "A", "date": datetime.date(2026, 6, 2)},
+        {"title": "B", "date": datetime.date(2025, 1, 1)},
+        {"title": "C", "date": datetime.date(2026, 2, 1)},
+    ]
+    result = _collapse_rows(rows, ["date:year"], {})
+    titles = [r["title"] for r in result]
+    assert titles == ["A", "C", "B"]  # 2026 rows grouped first, then 2025
+
+
+def test_render_group_by_year_creates_year_header() -> None:
+    rows = [
+        {"title": "A", "date": datetime.date(2026, 6, 2)},
+        {"title": "B", "date": datetime.date(2025, 1, 1)},
+    ]
+    html = _render_table_html(
+        rows,
+        fields=["title", "date"],
+        field_labels={},
+        hidden=set(),
+        sort_by="date",
+        sort_order="desc",
+        count_template=DEFAULT_COUNT_TEMPLATE,
+        group_by=["date:year"],
+        group_summary_at=["date:year"],
+        aggregate={},
+        group_count_template="",
+    )
+    assert "osm-group-header-title" in html
+    assert ">2026</strong>" in html
+    assert ">2025</strong>" in html
+    # date column is independent of the derived year grouping
+    assert "<td>2026-06-02</td>" in html
