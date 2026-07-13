@@ -446,7 +446,7 @@ def _render_table_html(
     parts: list[str] = ['<div class="osm-place-list-wrapper">']
     parts.append('<table class="osm-place-list">')
     parts.append("<thead><tr>")
-    for col_key, label in columns:
+    for _col_key, label in columns:
         col_anchor = _anchor_id("osm-col--" + _slugify(label))
         parts.append(f'<th id="{col_anchor}" scope="col">{html.escape(label)}</th>')
     parts.append("</tr></thead>")

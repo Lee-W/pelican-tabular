@@ -10,13 +10,16 @@ keywords = ["pelican", "plugin", "markdown", "table", "data"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Plugins",
-  "Framework :: Pelican",
+  "Framework :: Pelican :: Plugins",
   "Programming Language :: Python :: 3",
   "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = ["pyyaml>=6.0", "pelican>=4.5"]
+
+[project.urls]
+Homepage = "https://github.com/Lee-W/pelican-tabular"
 
 [dependency-groups]
 dev = [
@@ -68,7 +71,7 @@ ignore_missing_imports = true
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "RUF"]
+select = ["E", "F", "W", "I", "UP", "SIM", "B", "RUF"]
 
 [tool.codespell]
 skip = '.git*,*.lock'

@@ -892,7 +892,7 @@ def test_resolve_settings_date_format() -> None:
 def test_cell_value_aria_label() -> None:
     value = {"text": "📊", "href": "https://example.com"}
     html = _cell_value(value, aria_label="Slide")
-    assert '<a href="https://example.com" aria-label="Slide">📊</a>' == html
+    assert html == '<a href="https://example.com" aria-label="Slide">📊</a>'
 
 
 def test_cell_value_no_aria_label_by_default() -> None:
