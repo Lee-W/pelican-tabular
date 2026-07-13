@@ -1,3 +1,14 @@
+## 0.5.0 (2026-07-13)
+
+### Feat
+
+- expand aggregate to count/sum/avg/min/max
+
+### Fix
+
+- resolve mypy duplicate-module crash from py.typed
+- normalize sort_by key type to avoid TypeError on mixed columns
+
 ## 0.4.0 (2026-06-08)
 
 ### Feat
