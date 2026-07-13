@@ -121,9 +121,16 @@ When `aggregate` is set, rows sharing a `group_by` key are collapsed into a sing
 | Op | Description |
 |----|-------------|
 | `year` | Collect all unique years from the field across grouped rows, sorted ascending, joined with `, ` |
+| `count` | Number of grouped rows with a non-empty value for the field |
+| `sum` | Sum of the field's numeric values (non-numeric/missing values are skipped) |
+| `avg` | Mean of the field's numeric values, rounded to 2 decimal places |
+| `min` / `max` | Smallest / largest of the field's numeric values |
+
+`sum`/`avg`/`min`/`max` coerce numeric-looking strings (e.g. `"8.5"`) but skip anything that can't be parsed as a number; if no value in the group is numeric, the aggregated cell is empty.
 
 ```
 {% table data/books.yaml group_by="author" aggregate="year:year" %}
+{% table data/books.yaml group_by="genre" aggregate="rating:avg,pages:sum" %}
 ```
 
 ## Column anchors

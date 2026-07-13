@@ -323,9 +323,54 @@ def test_aggregate_field_unknown_op(caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
     with caplog.at_level(logging.WARNING):
-        result = _aggregate_field("sum", "count", [{"count": 3}])
+        result = _aggregate_field("median", "count", [{"count": 3}])
     assert result == ""
     assert "unknown aggregate op" in caplog.text
+
+
+def test_aggregate_field_count() -> None:
+    places: list[dict[str, Any]] = [
+        {"rating": 9},
+        {"rating": None},
+        {"rating": 7},
+        {},
+    ]
+    assert _aggregate_field("count", "rating", places) == 2
+
+
+def test_aggregate_field_sum() -> None:
+    places: list[dict[str, Any]] = [
+        {"pages": 100},
+        {"pages": 250},
+        {"pages": None},
+    ]
+    assert _aggregate_field("sum", "pages", places) == "350"
+
+
+def test_aggregate_field_avg() -> None:
+    places = [{"rating": 9}, {"rating": 7}, {"rating": 8}]
+    assert _aggregate_field("avg", "rating", places) == "8"
+
+
+def test_aggregate_field_avg_rounds() -> None:
+    places = [{"rating": 9}, {"rating": 8}, {"rating": 8}]
+    assert _aggregate_field("avg", "rating", places) == "8.33"
+
+
+def test_aggregate_field_min_max() -> None:
+    places: list[dict[str, Any]] = [
+        {"rating": 9},
+        {"rating": 7},
+        {"rating": "8.5"},
+    ]
+    assert _aggregate_field("min", "rating", places) == "7"
+    assert _aggregate_field("max", "rating", places) == "9"
+
+
+def test_aggregate_field_numeric_ops_ignore_non_numeric() -> None:
+    places: list[dict[str, Any]] = [{"rating": "n/a"}, {"rating": None}]
+    assert _aggregate_field("sum", "rating", places) == ""
+    assert _aggregate_field("avg", "rating", places) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -486,8 +531,8 @@ def test_group_count_template_fallback() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render(**kwargs: object) -> str:
-    defaults: dict[str, object] = {
+def _render(**kwargs: Any) -> str:
+    defaults: dict[str, Any] = {
         "fields": [],
         "field_labels": {},
         "hidden": set(),
@@ -500,7 +545,7 @@ def _render(**kwargs: object) -> str:
         "group_count_template": DEFAULT_GROUP_COUNT_TEMPLATE,
     }
     defaults.update(kwargs)
-    return _render_table_html(SAMPLE_ROWS, **defaults)  # type: ignore[no-any-return]
+    return _render_table_html(SAMPLE_ROWS, **defaults)
 
 
 def test_render_uses_osm_place_list_classes() -> None:
@@ -528,7 +573,7 @@ def test_render_sort_asc() -> None:
 
 
 def test_render_sort_mixed_types_does_not_raise() -> None:
-    rows = [
+    rows: list[dict[str, Any]] = [
         {"title": "Int", "rank": 5},
         {"title": "Str", "rank": "abc"},
         {"title": "None", "rank": None},
@@ -711,7 +756,7 @@ class _FakeContent:
 
 
 def _make_settings(**overrides: Any) -> dict[str, Any]:
-    return _resolve_settings(overrides)  # type: ignore[no-any-return]
+    return _resolve_settings(overrides)
 
 
 def test_process_content_replaces_shortcode(tmp_path: Path) -> None:

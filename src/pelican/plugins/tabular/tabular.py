@@ -150,6 +150,25 @@ def _extract_years(value: Any) -> list[int]:
     return [year] if year is not None else []
 
 
+def _numeric_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _format_number(value: float) -> str:
+    if value == int(value):
+        return str(int(value))
+    return str(round(value, 2))
+
+
 def _aggregate_field(op: str, field: str, places: list[dict[str, Any]]) -> Any:
     if op == "year":
         seen: set[int] = set()
@@ -161,6 +180,20 @@ def _aggregate_field(op: str, field: str, places: list[dict[str, Any]]) -> Any:
                     ordered.append(year)
         ordered.sort()
         return ", ".join(str(y) for y in ordered)
+    if op == "count":
+        return sum(1 for p in places if p.get(field) not in (None, ""))
+    if op in ("sum", "avg", "min", "max"):
+        raw = (_numeric_value(p.get(field)) for p in places)
+        values = [v for v in raw if v is not None]
+        if not values:
+            return ""
+        if op == "sum":
+            return _format_number(sum(values))
+        if op == "avg":
+            return _format_number(sum(values) / len(values))
+        if op == "min":
+            return _format_number(min(values))
+        return _format_number(max(values))
     log.warning("pelican-tabular: unknown aggregate op %r for field %r", op, field)
     return ""
 
