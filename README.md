@@ -102,7 +102,7 @@ Link `href` values support Pelican's `{filename}` syntax to cross-reference othe
 {% table data/books.yaml group_by="genre,author" group_summary_at="genre" %}
 ```
 
-This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via the bundled `osm-map.js` JS.
+This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via [pelican-osm](https://github.com/Lee-W/pelican-osm)'s `osm-map.js` — see [CSS / JS](#css--js) below.
 
 ### Derived group keys
 
