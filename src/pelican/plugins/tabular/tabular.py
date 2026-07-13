@@ -365,6 +365,23 @@ def _cell_value(
     return html.escape(_format_scalar(value, date_format))
 
 
+def _sort_key(value: Any) -> tuple[int, Any]:
+    """Bucket a cell value by comparable type so sorting never raises on a
+    column with mixed types (e.g. some rows missing the field, others int
+    vs str). Buckets sort numbers, then dates, then everything else
+    (strings and None) so cross-type comparisons never happen.
+    """
+    if isinstance(value, bool):
+        return (0, int(value))
+    if isinstance(value, (int, float)):
+        return (0, value)
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return (1, value)
+    if value is None:
+        return (2, "")
+    return (2, str(value))
+
+
 def _render_table_html(
     rows: list[dict[str, Any]],
     *,
@@ -384,7 +401,7 @@ def _render_table_html(
     aria_columns = aria_columns or set()
     if sort_by:
         reverse = sort_order.lower() == "desc"
-        rows = sorted(rows, key=lambda r: r.get(sort_by) or "", reverse=reverse)
+        rows = sorted(rows, key=lambda r: _sort_key(r.get(sort_by)), reverse=reverse)
 
     if group_by:
         if group_summary_at and group_by[: len(group_summary_at)] != group_summary_at:

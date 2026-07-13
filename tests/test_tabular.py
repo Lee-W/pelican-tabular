@@ -527,6 +527,30 @@ def test_render_sort_asc() -> None:
     assert html.index("Book B") < html.index("Book A")
 
 
+def test_render_sort_mixed_types_does_not_raise() -> None:
+    rows = [
+        {"title": "Int", "rank": 5},
+        {"title": "Str", "rank": "abc"},
+        {"title": "None", "rank": None},
+    ]
+    html = _render_table_html(
+        rows,
+        fields=["title", "rank"],
+        field_labels={},
+        hidden=set(),
+        sort_by="rank",
+        sort_order="asc",
+        count_template=DEFAULT_COUNT_TEMPLATE,
+        group_by=[],
+        group_summary_at=[],
+        aggregate={},
+        group_count_template=DEFAULT_GROUP_COUNT_TEMPLATE,
+    )
+    # numbers sort before dates/strings; None falls back into the string
+    # bucket as ""
+    assert html.index("Int") < html.index("None") < html.index("Str")
+
+
 def test_render_hidden_field() -> None:
     html = _render(hidden={"year"})
     assert "<th>year</th>" not in html
