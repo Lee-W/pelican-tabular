@@ -45,7 +45,7 @@ PLUGINS = ["pelican.plugins.tabular"]
 | `date_format` | `strftime` pattern applied to date/datetime cells, e.g. `%b %Y` → `Jun 2026` (overrides `TABULAR_DATE_FORMAT`). Sorting still uses the underlying date |
 | `aria_columns` | Comma-separated columns whose links should get an `aria-label` taken from the column header, giving icon-only link text (e.g. an emoji) an accessible name |
 | `ref_text_field` | Field (within the referenced record) used as link text for `<field>_ref` columns (overrides `TABULAR_REF_TEXT_FIELD`, default `name`) |
-| `ref_href_template` | `str.format`-style template(s) used to build the link href for `<field>_ref` columns; `\|`-separate multiple templates for a fallback chain (overrides `TABULAR_REF_HREF_TEMPLATE`, default `https://www.openstreetmap.org/?#map=16/{lat}/{lon}`) |
+| `ref_href_template` | `str.format`-style template(s) used to build the link href for `<field>_ref` columns; `\|`-separate multiple templates for a fallback chain (overrides `TABULAR_REF_HREF_TEMPLATE`, default `https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}`) |
 
 ## Data formats
 
@@ -115,7 +115,7 @@ locations:
 
 renders a `venue` column (the `_ref` suffix is stripped) whose cell is a
 link built from the referenced record — text `Zepp New Taipei`, href
-`https://www.openstreetmap.org/?#map=16/25.059661/121.449499` — identical to
+`https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499#map=17/25.059661/121.449499` — identical to
 what you'd get by hand-writing `venue: {text: "Zepp New Taipei", href: "…"}`
 in `concerts.yaml` directly. `fields`, `group_by`, `sort_by`, etc. all see
 the resolved `venue` field, not `venue_ref`.
@@ -167,7 +167,7 @@ whose placeholders are all present and non-empty in the resolved record**
 wins:
 
 ```
-{% table data/concerts.yaml ref_href_template="https://www.openstreetmap.org/{osm_type}/{osm_id}|https://www.openstreetmap.org/?#map=16/{lat}/{lon}" %}
+{% table data/concerts.yaml ref_href_template="https://www.openstreetmap.org/{osm_type}/{osm_id}|https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}" %}
 ```
 
 Here, a venue record with `osm_type`/`osm_id` set links straight to that OSM
@@ -203,7 +203,7 @@ file shares the cached result.
 | `TABULAR_GROUP_COUNT_TEMPLATE` | `"{n} rows"` | Count string inside group-header rows |
 | `TABULAR_DATE_FORMAT` | `""` | Global `strftime` pattern for date/datetime cells (empty = ISO format). Per-shortcode `date_format` overrides it |
 | `TABULAR_REF_TEXT_FIELD` | `"name"` | Field used as link text when resolving `<field>_ref` columns; see [Cross-file references](#cross-file-references-field_ref) |
-| `TABULAR_REF_HREF_TEMPLATE` | `"https://www.openstreetmap.org/?#map=16/{lat}/{lon}"` | `str.format` template(s) used to build the link href when resolving `<field>_ref` columns; see [Fallback chain](#fallback-chain-mixed-data-quality-across-records) for the `\|`-separated multi-template form |
+| `TABULAR_REF_HREF_TEMPLATE` | `"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}"` | `str.format` template(s) used to build the link href when resolving `<field>_ref` columns; see [Fallback chain](#fallback-chain-mixed-data-quality-across-records) for the `\|`-separated multi-template form |
 
 `TABULAR_COUNT_TEMPLATE` and `TABULAR_GROUP_COUNT_TEMPLATE` have built-in defaults for `zh` (`{n} 筆資料` / `{n} 筆`) and `ja` (`{n} 件`), derived from Pelican's `DEFAULT_LANG` setting.
 

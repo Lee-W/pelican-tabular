@@ -1187,7 +1187,7 @@ def test_resolve_ref_value_normal(tmp_path: Path) -> None:
     )
     assert result == {
         "text": "Zepp New Taipei",
-        "href": "https://www.openstreetmap.org/?#map=16/25.059661/121.449499",
+        "href": "https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499#map=17/25.059661/121.449499",
     }
 
 
@@ -1291,7 +1291,7 @@ def test_resolve_ref_rows_replaces_field_name(tmp_path: Path) -> None:
             "title": "悟",
             "venue": {
                 "text": "Zepp New Taipei",
-                "href": "https://www.openstreetmap.org/?#map=16/25.059661/121.449499",
+                "href": "https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499#map=17/25.059661/121.449499",
             },
         }
     ]
@@ -1338,7 +1338,11 @@ def test_process_content_resolves_venue_ref(tmp_path: Path) -> None:
 
     html = content._content
     assert "Zepp New Taipei" in html
-    assert 'href="https://www.openstreetmap.org/?#map=16/25.059661/121.449499"' in html
+    expected_href = (
+        'href="https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499'
+        '#map=17/25.059661/121.449499"'
+    )
+    assert expected_href in html
     assert "venue_ref" not in html
 
 
@@ -1437,6 +1441,40 @@ def test_template_fields_extracts_placeholders() -> None:
 
 def test_template_fields_no_placeholders() -> None:
     assert _template_fields("https://x/static") == []
+
+
+def test_template_fields_deduplicates_repeated_placeholders() -> None:
+    """An OSM marker URL repeats lat/lon — pin position and map centre."""
+    assert _template_fields(
+        "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}"
+    ) == ["lat", "lon"]
+
+
+def test_template_fields_preserves_first_appearance_order() -> None:
+    assert _template_fields("https://x/{b}/{a}/{b}/{c}/{a}") == ["b", "a", "c"]
+
+
+def test_repeated_placeholder_template_is_applicable() -> None:
+    """Dedup must not change applicability for repeated placeholders."""
+    template = "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}"
+    assert _template_is_applicable(template, {"lat": 25.06, "lon": 121.45}) is True
+    assert _template_is_applicable(template, {"lat": 25.06}) is False
+
+
+def test_default_ref_href_template_drops_a_marker_pin() -> None:
+    """The default must place a pin, not merely centre the viewport.
+
+    A bare ``#map=`` centre leaves the reader guessing which building is
+    meant; ``?mlat=&mlon=`` marks the exact place.
+    """
+    assert "mlat=" in DEFAULT_REF_HREF_TEMPLATE
+    assert "mlon=" in DEFAULT_REF_HREF_TEMPLATE
+    assert _format_ref_href(
+        DEFAULT_REF_HREF_TEMPLATE, {"lat": 25.059661, "lon": 121.449499}
+    ) == (
+        "https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499"
+        "#map=17/25.059661/121.449499"
+    )
 
 
 def test_template_is_applicable_all_present() -> None:
