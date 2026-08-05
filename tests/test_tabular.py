@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -16,17 +17,25 @@ from pelican.plugins.tabular.tabular import (
     DEFAULT_COUNT_TEMPLATE,
     DEFAULT_GROUP_COUNT_TEMPLATE,
     DEFAULT_REF_HREF_TEMPLATE,
+    DEFAULT_REF_ROOTS,
+    DEFAULT_REF_SUFFIX,
     DEFAULT_REF_TEXT_FIELD,
+    RefRenderContext,
+    TabularRefError,
     _aggregate_field,
+    _build_global_ref_index,
     _cell_value,
     _collapse_rows,
     _detect_columns,
     _extract_year,
     _extract_years,
     _field_transform,
+    _field_value,
     _find_ref_item,
     _format_ref_href,
     _format_scalar,
+    _get_global_ref_index,
+    _get_nested,
     _group_key_value,
     _load_data_file,
     _load_ref_file,
@@ -38,7 +47,9 @@ from pelican.plugins.tabular.tabular import (
     _render_table_html,
     _resolve_count_template,
     _resolve_filename_url,
+    _resolve_global_ref,
     _resolve_group_count_template,
+    _resolve_path_ref,
     _resolve_ref_href,
     _resolve_ref_rows,
     _resolve_ref_value,
@@ -49,6 +60,10 @@ from pelican.plugins.tabular.tabular import (
     _split_ref_href_templates,
     _template_fields,
     _template_is_applicable,
+)
+
+EMPTY_REF_CTX = RefRenderContext(
+    frozenset(), DEFAULT_REF_TEXT_FIELD, DEFAULT_REF_HREF_TEMPLATE
 )
 
 # ---------------------------------------------------------------------------
@@ -420,13 +435,13 @@ TIERED_ROWS = [
 
 
 def test_collapse_rows_no_aggregate_preserves_rows() -> None:
-    result = _collapse_rows(TIERED_ROWS, ["tier"], {})
+    result = _collapse_rows(TIERED_ROWS, ["tier"], {}, EMPTY_REF_CTX)
     titles = [r["title"] for r in result]
     assert titles == ["A", "C", "B"]  # SSS rows grouped first, then SS
 
 
 def test_collapse_rows_no_aggregate_adds_places() -> None:
-    result = _collapse_rows(TIERED_ROWS, ["tier"], {})
+    result = _collapse_rows(TIERED_ROWS, ["tier"], {}, EMPTY_REF_CTX)
     for row in result:
         assert "_places" in row
         assert len(row["_places"]) == 1
@@ -437,7 +452,7 @@ def test_collapse_rows_aggregate_merges() -> None:
         {"anime": "X", "tier": "SSS", "year": 2020},
         {"anime": "X", "tier": "SSS", "year": 2022},
     ]
-    result = _collapse_rows(rows, ["anime"], {"year": "year"})
+    result = _collapse_rows(rows, ["anime"], {"year": "year"}, EMPTY_REF_CTX)
     assert len(result) == 1
     assert result[0]["year"] == "2020, 2022"
     assert len(result[0]["_places"]) == 2
@@ -448,7 +463,7 @@ def test_collapse_rows_aggregate_first_nonblank_wins() -> None:
         {"anime": "X", "tier": "SSS", "note": ""},
         {"anime": "X", "tier": "SSS", "note": "great"},
     ]
-    result = _collapse_rows(rows, ["anime"], {"year": "year"})
+    result = _collapse_rows(rows, ["anime"], {"year": "year"}, EMPTY_REF_CTX)
     assert result[0]["note"] == "great"
 
 
@@ -993,13 +1008,109 @@ def test_field_transform_year() -> None:
     assert _field_transform("date:year") == ("date", "year")
 
 
+# ---------------------------------------------------------------------------
+# _get_nested (dotted field-path access)
+# ---------------------------------------------------------------------------
+
+
+def test_get_nested_plain_key() -> None:
+    assert _get_nested({"title": "Foo"}, "title") == "Foo"
+
+
+def test_get_nested_one_level() -> None:
+    assert _get_nested({"venue": {"city": "台北"}}, "venue.city") == "台北"
+
+
+def test_get_nested_two_levels() -> None:
+    row = {"venue": {"address": {"city": "台北"}}}
+    assert _get_nested(row, "venue.address.city") == "台北"
+
+
+def test_get_nested_missing_intermediate_returns_none() -> None:
+    assert _get_nested({"title": "Foo"}, "venue.city") is None
+
+
+def test_get_nested_none_intermediate_returns_none() -> None:
+    assert _get_nested({"venue": None}, "venue.city") is None
+
+
+def test_get_nested_non_dict_intermediate_returns_none() -> None:
+    assert _get_nested({"venue": "a string"}, "venue.city") is None
+
+
+def test_get_nested_literal_dotted_key_wins_over_traversal() -> None:
+    """An aggregate result stored at a literal ``row["venue.city"]`` key (see
+    ``_collapse_rows``) must not be shadowed by nested traversal into a
+    same-named but differently-shaped ``venue`` field.
+    """
+    row = {"venue.city": "literal", "venue": {"city": "nested"}}
+    assert _get_nested(row, "venue.city") == "literal"
+
+
+def test_get_nested_non_dict_root_returns_none() -> None:
+    assert _get_nested("not a dict", "venue.city") is None
+
+
+# ---------------------------------------------------------------------------
+# _field_value (dotted paths + :year / :link transforms, ref-aware)
+# ---------------------------------------------------------------------------
+
+
+def test_field_value_plain() -> None:
+    assert _field_value({"title": "Foo"}, "title", EMPTY_REF_CTX) == "Foo"
+
+
+def test_field_value_dotted_path() -> None:
+    row = {"venue": {"city": "台北", "name": "Zepp"}}
+    assert _field_value(row, "venue.city", EMPTY_REF_CTX) == "台北"
+
+
+def test_field_value_dotted_path_with_year_transform() -> None:
+    """``venue.date:year`` — a dotted path combined with a transform: the
+    ``:`` split happens first (``_field_transform``), then the dotted half
+    is walked (``_get_nested``); the two never conflict.
+    """
+    row = {"venue": {"date": datetime.date(2026, 6, 2)}}
+    assert _field_value(row, "venue.date:year", EMPTY_REF_CTX) == 2026
+
+
+def test_field_value_ref_field_no_transform_reduces_to_text() -> None:
+    record = {"id": "zepp", "name": "Zepp New Taipei", "lat": 25.0, "lon": 121.0}
+    ctx = RefRenderContext(frozenset({"venue"}), "name", DEFAULT_REF_HREF_TEMPLATE)
+    assert _field_value({"venue": record}, "venue", ctx) == "Zepp New Taipei"
+
+
+def test_field_value_ref_field_link_transform_builds_link() -> None:
+    record = {"id": "zepp", "name": "Zepp New Taipei", "lat": 25.06, "lon": 121.45}
+    ctx = RefRenderContext(frozenset({"venue"}), "name", DEFAULT_REF_HREF_TEMPLATE)
+    result = _field_value({"venue": record}, "venue:link", ctx)
+    assert result == {
+        "text": "Zepp New Taipei",
+        "href": "https://www.openstreetmap.org/?mlat=25.06&mlon=121.45#map=17/25.06/121.45",
+    }
+
+
+def test_field_value_nested_ref_field_is_not_reduced() -> None:
+    """Only the *bare* ref field name (no further dotting) triggers the
+    plain-text reduction — ``venue.city`` is already a scalar leaf, so it
+    passes through unchanged.
+    """
+    record = {"id": "zepp", "name": "Zepp New Taipei", "city": "台北"}
+    ctx = RefRenderContext(frozenset({"venue"}), "name", DEFAULT_REF_HREF_TEMPLATE)
+    assert _field_value({"venue": record}, "venue.city", ctx) == "台北"
+
+
+def test_field_value_missing_path_returns_none() -> None:
+    assert _field_value({"title": "Foo"}, "venue.city", EMPTY_REF_CTX) is None
+
+
 def test_group_key_value_year() -> None:
     row = {"date": datetime.date(2026, 6, 2)}
-    assert _group_key_value(row, "date:year") == 2026
+    assert _group_key_value(row, "date:year", EMPTY_REF_CTX) == 2026
 
 
 def test_group_key_value_plain() -> None:
-    assert _group_key_value({"tier": "SSS"}, "tier") == "SSS"
+    assert _group_key_value({"tier": "SSS"}, "tier", EMPTY_REF_CTX) == "SSS"
 
 
 def test_collapse_rows_group_by_year() -> None:
@@ -1008,7 +1119,7 @@ def test_collapse_rows_group_by_year() -> None:
         {"title": "B", "date": datetime.date(2025, 1, 1)},
         {"title": "C", "date": datetime.date(2026, 2, 1)},
     ]
-    result = _collapse_rows(rows, ["date:year"], {})
+    result = _collapse_rows(rows, ["date:year"], {}, EMPTY_REF_CTX)
     titles = [r["title"] for r in result]
     assert titles == ["A", "C", "B"]  # 2026 rows grouped first, then 2025
 
@@ -1147,7 +1258,8 @@ def test_format_ref_href_missing_key_is_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_ref_value / _resolve_ref_rows
+# _resolve_path_ref / _resolve_global_ref / global index / _resolve_ref_value
+# / _resolve_ref_rows
 # ---------------------------------------------------------------------------
 
 
@@ -1173,128 +1285,506 @@ def _write_taiwan_venues(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_resolve_ref_value_normal(tmp_path: Path) -> None:
+ZEPP_RECORD = {
+    "id": "zepp-new-taipei",
+    "name": "Zepp New Taipei",
+    "lat": 25.059661,
+    "lon": 121.449499,
+}
+
+
+# --- <path>#<id> form ----------------------------------------------------
+
+
+def test_resolve_path_ref_normal(tmp_path: Path) -> None:
     content_path = _write_taiwan_venues(tmp_path)
-    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_path_ref(
+        "places/venues/taiwan.yaml#zepp-new-taipei",
+        content_path=content_path,
+        cache={},
+    )
+    assert result == ZEPP_RECORD
+
+
+def test_resolve_path_ref_file_not_found_raises(tmp_path: Path) -> None:
+    with pytest.raises(TabularRefError, match="not found"):
+        _resolve_path_ref(
+            "places/venues/missing.yaml#zepp-new-taipei",
+            content_path=tmp_path,
+            cache={},
+        )
+
+
+def test_resolve_path_ref_id_not_found_raises(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    with pytest.raises(TabularRefError, match="not found"):
+        _resolve_path_ref(
+            "places/venues/taiwan.yaml#no-such-id",
+            content_path=content_path,
+            cache={},
+        )
+
+
+def test_resolve_path_ref_malformed_yaml_raises(tmp_path: Path) -> None:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text("not: [valid, yaml: :", encoding="utf-8")
+    with pytest.raises(TabularRefError, match="failed to load"):
+        _resolve_path_ref(
+            "places/venues/taiwan.yaml#zepp-new-taipei",
+            content_path=tmp_path,
+            cache={},
+        )
+
+
+# --- bare <id> global form -------------------------------------------------
+
+
+def test_resolve_global_ref_hits_by_id(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    result = _resolve_global_ref(
+        "zepp-new-taipei",
+        content_path=content_path,
+        ref_roots=DEFAULT_REF_ROOTS,
+        cache={},
+        index_cache={},
+    )
+    assert result == ZEPP_RECORD
+
+
+def test_resolve_global_ref_falls_back_to_name(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    result = _resolve_global_ref(
+        "Zepp New Taipei",
+        content_path=content_path,
+        ref_roots=DEFAULT_REF_ROOTS,
+        cache={},
+        index_cache={},
+    )
+    assert result == ZEPP_RECORD
+
+
+def test_resolve_global_ref_not_found_raises(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    with pytest.raises(TabularRefError, match="not found"):
+        _resolve_global_ref(
+            "nope",
+            content_path=content_path,
+            ref_roots=DEFAULT_REF_ROOTS,
+            cache={},
+            index_cache={},
+        )
+
+
+def test_resolve_global_ref_ambiguous_id_raises_with_all_candidates(
+    tmp_path: Path,
+) -> None:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump([{"id": "moondog", "name": "Moondog Taipei"}]), encoding="utf-8"
+    )
+    (venues_dir / "japan.yaml").write_text(
+        yaml.dump([{"id": "moondog", "name": "Moondog Osaka"}]), encoding="utf-8"
+    )
+    with pytest.raises(TabularRefError) as exc_info:
+        _resolve_global_ref(
+            "moondog",
+            content_path=tmp_path,
+            ref_roots=DEFAULT_REF_ROOTS,
+            cache={},
+            index_cache={},
+        )
+    message = str(exc_info.value)
+    assert "ambiguous" in message
+    assert str(venues_dir / "taiwan.yaml") in message
+    assert str(venues_dir / "japan.yaml") in message
+
+
+def test_build_global_ref_index_indexes_by_id_and_name(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    by_id, by_name = _build_global_ref_index(content_path, DEFAULT_REF_ROOTS, {})
+    assert [item for _, item in by_id["zepp-new-taipei"]] == [ZEPP_RECORD]
+    assert [item for _, item in by_name["Zepp New Taipei"]] == [ZEPP_RECORD]
+
+
+def test_get_global_ref_index_builds_only_once(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    index_cache: dict[str, Any] = {}
+    first = _get_global_ref_index(content_path, DEFAULT_REF_ROOTS, {}, index_cache)
+    second = _get_global_ref_index(content_path, DEFAULT_REF_ROOTS, {}, index_cache)
+    assert first is second  # memoized: second call reuses the built index
+
+
+def test_get_global_ref_index_reused_across_many_lookups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A whole ``_resolve_ref_rows`` call over many rows builds the index once."""
+    import pelican.plugins.tabular.tabular as _mod
+
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"venue_ref": "zepp-new-taipei"} for _ in range(5)]
+    index_cache: dict[str, Any] = {}
+    calls: list[int] = []
+    real_build = _mod._build_global_ref_index
+
+    def _counting_build(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(_mod, "_build_global_ref_index", _counting_build)
+    _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache=index_cache,
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=[],
+    )
+    assert len(calls) == 1
+
+
+# --- _resolve_ref_value: dispatch + strict/non-strict ----------------------
+
+
+def test_resolve_ref_value_path_form(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
     result = _resolve_ref_value(
         "places/venues/taiwan.yaml#zepp-new-taipei",
         content_path=content_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
         field_name="venue_ref",
         row_index=0,
+        source_file=tmp_path / "data" / "concerts.yaml",
     )
-    assert result == {
-        "text": "Zepp New Taipei",
-        "href": "https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499#map=17/25.059661/121.449499",
-    }
+    assert result == ZEPP_RECORD
 
 
-def test_resolve_ref_value_missing_hash_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    import logging
-
-    caplog.set_level(logging.WARNING)
-    cache: dict[Path, list[dict[str, Any]]] = {}
+def test_resolve_ref_value_global_id_form(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
     result = _resolve_ref_value(
-        "places/venues/taiwan.yaml",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        "zepp-new-taipei",
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
         field_name="venue_ref",
         row_index=0,
+        source_file=tmp_path / "data" / "concerts.yaml",
     )
-    assert result == "places/venues/taiwan.yaml"
-    assert "missing" in caplog.text
+    assert result == ZEPP_RECORD
 
 
-def test_resolve_ref_value_file_not_found_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    import logging
+def test_resolve_ref_value_strict_raises_with_locator(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    source_file = tmp_path / "data" / "concerts.yaml"
+    with pytest.raises(TabularRefError) as exc_info:
+        _resolve_ref_value(
+            "places/venues/taiwan.yaml#no-such-id",
+            content_path=content_path,
+            cache={},
+            ref_roots=DEFAULT_REF_ROOTS,
+            index_cache={},
+            strict=True,
+            field_name="venue_ref",
+            row_index=2,
+            source_file=source_file,
+        )
+    message = str(exc_info.value)
+    assert "venue_ref" in message
+    assert "row 2" in message
+    assert str(source_file) in message
+    assert "no-such-id" in message
 
-    caplog.set_level(logging.WARNING)
-    cache: dict[Path, list[dict[str, Any]]] = {}
-    result = _resolve_ref_value(
-        "places/venues/missing.yaml#zepp-new-taipei",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
-        field_name="venue_ref",
-        row_index=0,
-    )
-    assert result == "places/venues/missing.yaml#zepp-new-taipei"
-    assert "not found" in caplog.text
 
-
-def test_resolve_ref_value_id_not_found_warns(
+def test_resolve_ref_value_non_strict_degrades_to_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     import logging
 
     caplog.set_level(logging.WARNING)
     content_path = _write_taiwan_venues(tmp_path)
-    cache: dict[Path, list[dict[str, Any]]] = {}
     result = _resolve_ref_value(
         "places/venues/taiwan.yaml#no-such-id",
         content_path=content_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=False,
         field_name="venue_ref",
         row_index=0,
+        source_file=tmp_path / "data" / "concerts.yaml",
     )
     assert result == "places/venues/taiwan.yaml#no-such-id"
     assert "not found" in caplog.text
 
 
-def test_resolve_ref_value_malformed_yaml_warns(
+# --- _resolve_ref_rows -------------------------------------------------------
+
+
+def test_resolve_ref_rows_replaces_field_name_with_full_record(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"title": "悟", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}]
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=[],
+    )
+    assert result == [{"title": "悟", "venue": ZEPP_RECORD}]
+    assert ref_fields == frozenset({"venue"})
+
+
+def test_resolve_ref_rows_strict_failure_does_not_raise_and_is_collected(
+    tmp_path: Path,
+) -> None:
+    """The whole point of the fix: a strict-mode failure inside
+    ``_resolve_ref_rows`` must NOT raise (that would only take down the one
+    page being processed — see the module comment above ``_REF_SUFFIX``). It
+    degrades the cell to the raw ref string and appends a locator-bearing
+    message to ``errors`` instead.
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"title": "悟", "venue_ref": "places/venues/taiwan.yaml#no-such-id"}]
+    errors: list[str] = []
+    source_file = tmp_path / "data" / "concerts.yaml"
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=source_file,
+        errors=errors,
+    )
+    assert result == [
+        {"title": "悟", "venue": "places/venues/taiwan.yaml#no-such-id"}
+    ]
+    assert ref_fields == frozenset({"venue"})
+    assert len(errors) == 1
+    assert "no-such-id" in errors[0]
+    assert "venue_ref" in errors[0]
+    assert str(source_file) in errors[0]
+
+
+def test_resolve_ref_rows_collects_every_bad_ref_not_just_the_first(
+    tmp_path: Path,
+) -> None:
+    """Two bad refs in the same file both surface in one pass — the reader
+    doesn't have to fix one, rebuild, and only then discover the next.
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [
+        {"title": "A", "venue_ref": "places/venues/taiwan.yaml#no-such-id-1"},
+        {"title": "B", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"},
+        {"title": "C", "venue_ref": "places/venues/taiwan.yaml#no-such-id-2"},
+    ]
+    errors: list[str] = []
+    result, _ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=errors,
+    )
+    # all three rows still processed — the good one resolves normally
+    assert result[1]["venue"] == ZEPP_RECORD
+    assert len(errors) == 2
+    assert any("no-such-id-1" in e for e in errors)
+    assert any("no-such-id-2" in e for e in errors)
+
+
+def test_resolve_ref_rows_non_strict_failure_not_collected(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     import logging
 
     caplog.set_level(logging.WARNING)
-    venues_dir = tmp_path / "places" / "venues"
-    venues_dir.mkdir(parents=True)
-    (venues_dir / "taiwan.yaml").write_text("not: [valid, yaml: :", encoding="utf-8")
-    cache: dict[Path, list[dict[str, Any]]] = {}
-    result = _resolve_ref_value(
-        "places/venues/taiwan.yaml#zepp-new-taipei",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
-        field_name="venue_ref",
-        row_index=0,
-    )
-    assert result == "places/venues/taiwan.yaml#zepp-new-taipei"
-    assert "failed to load" in caplog.text
-
-
-def test_resolve_ref_rows_replaces_field_name(tmp_path: Path) -> None:
     content_path = _write_taiwan_venues(tmp_path)
-    rows = [{"title": "悟", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}]
-    cache: dict[Path, list[dict[str, Any]]] = {}
-    result = _resolve_ref_rows(
+    rows = [{"venue_ref": "places/venues/taiwan.yaml#no-such-id"}]
+    errors: list[str] = []
+    _resolve_ref_rows(
         rows,
         content_path=content_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=False,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=errors,
     )
-    assert result == [
+    assert errors == []
+    assert "not found" in caplog.text
+
+
+# --- collision: both <name> and <name>_ref present on the same row ---------
+
+
+def test_resolve_ref_rows_collision_strict_collects_error_keeps_original(
+    tmp_path: Path,
+) -> None:
+    """`venue` and `venue_ref` both present: resolving the ref would
+    silently overwrite hand-authored data. In strict mode that's collected
+    into `errors` (like any other ref failure) — but the original `venue`
+    value must survive untouched either way (see next test for non-strict).
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [
         {
             "title": "悟",
-            "venue": {
-                "text": "Zepp New Taipei",
-                "href": "https://www.openstreetmap.org/?mlat=25.059661&mlon=121.449499#map=17/25.059661/121.449499",
-            },
+            "venue": "Somewhere I Wrote By Hand",
+            "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei",
         }
     ]
+    errors: list[str] = []
+    source_file = tmp_path / "data" / "concerts.yaml"
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=source_file,
+        errors=errors,
+    )
+    assert result == [{"title": "悟", "venue": "Somewhere I Wrote By Hand"}]
+    assert ref_fields == frozenset()  # not treated as a resolved ref field
+    assert len(errors) == 1
+    message = errors[0]
+    assert "venue" in message
+    assert "venue_ref" in message
+    assert "Somewhere I Wrote By Hand" in message
+    assert "row 0" in message
+    assert str(source_file) in message
+
+
+def test_resolve_ref_rows_collision_non_strict_keeps_original_and_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [
+        {
+            "venue": "Somewhere I Wrote By Hand",
+            "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei",
+        }
+    ]
+    errors: list[str] = []
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=False,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=errors,
+    )
+    assert result == [{"venue": "Somewhere I Wrote By Hand"}]
+    assert ref_fields == frozenset()
+    assert errors == []  # non-strict: never fails the build
+    assert "Somewhere I Wrote By Hand" in caplog.text
+    assert "venue_ref" in caplog.text
+
+
+def test_resolve_ref_rows_non_string_ref_value_skipped(tmp_path: Path) -> None:
+    """A `<name>_ref` field whose value isn't a string (e.g. already resolved
+    upstream, or just malformed data) is left alone — not treated as a ref,
+    no collision check, no error.
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"venue_ref": {"already": "a dict"}}]
+    errors: list[str] = []
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=errors,
+    )
+    assert result == [{"venue_ref": {"already": "a dict"}}]
+    assert ref_fields == frozenset()
+    assert errors == []
+
+
+# --- configurable ref_suffix (TABULAR_REF_SUFFIX) ---------------------------
+
+
+def test_resolve_ref_rows_custom_suffix_resolves(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"title": "悟", "venue__link": "places/venues/taiwan.yaml#zepp-new-taipei"}]
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=[],
+        ref_suffix="__link",
+    )
+    assert result == [{"title": "悟", "venue": ZEPP_RECORD}]
+    assert ref_fields == frozenset({"venue"})
+
+
+def test_resolve_ref_rows_custom_suffix_leaves_default_suffix_field_alone(
+    tmp_path: Path,
+) -> None:
+    """With `ref_suffix="__link"`, a field literally named `source_ref` is
+    just an ordinary string field — not a ref, no resolution attempted, no
+    ambiguous-id/not-found error even though its value looks nothing like a
+    real id. This is the escape hatch the coordinator asked for: a string
+    field that happens to end in the *default* `_ref` suffix stops being
+    load-bearing once the suffix is reconfigured.
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"source_ref": "ISBN 978-0-000-00000-0"}]
+    errors: list[str] = []
+    result, ref_fields = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache={},
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=errors,
+        ref_suffix="__link",
+    )
+    assert result == [{"source_ref": "ISBN 978-0-000-00000-0"}]
+    assert ref_fields == frozenset()
+    assert errors == []
+
+
+def test_resolve_settings_reads_custom_ref_suffix() -> None:
+    settings = _resolve_settings({"TABULAR_REF_SUFFIX": "__link"})
+    assert settings["ref_suffix"] == "__link"
+
+
+def test_resolve_settings_ref_suffix_defaults() -> None:
+    settings = _resolve_settings({})
+    assert settings["ref_suffix"] == DEFAULT_REF_SUFFIX == "_ref"
 
 
 def test_resolve_ref_rows_shares_cache_across_rows(tmp_path: Path) -> None:
@@ -1308,8 +1798,11 @@ def test_resolve_ref_rows_shares_cache_across_rows(tmp_path: Path) -> None:
         rows,
         content_path=content_path,
         cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        ref_roots=DEFAULT_REF_ROOTS,
+        index_cache={},
+        strict=True,
+        source_file=tmp_path / "data" / "concerts.yaml",
+        errors=[],
     )
     assert len(cache) == 1
 
@@ -1319,7 +1812,15 @@ def test_resolve_ref_rows_shares_cache_across_rows(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_process_content_resolves_venue_ref(tmp_path: Path) -> None:
+def test_process_content_resolves_venue_ref_as_plain_text_by_default(
+    tmp_path: Path,
+) -> None:
+    """A bare `venue` field (no `:link`) shows plain text, not a link.
+
+    This is the semantics migration: `venue_ref` now resolves to the whole
+    referenced record; how it's *displayed* is a `fields` rendering choice,
+    not baked into ref resolution.
+    """
     content_path = _write_taiwan_venues(tmp_path)
     data_dir = content_path / "data"
     data_dir.mkdir()
@@ -1333,7 +1834,27 @@ def test_process_content_resolves_venue_ref(tmp_path: Path) -> None:
     (data_dir / "concerts.yaml").write_text(yaml.dump(concerts), encoding="utf-8")
 
     settings = _make_settings()
-    content = _FakeContent("{% table data/concerts.yaml %}")
+    content = _FakeContent('{% table data/concerts.yaml fields="title,date,venue" %}')
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+
+    html = content._content
+    assert "<td>Zepp New Taipei</td>" in html
+    assert "openstreetmap.org" not in html
+    assert "venue_ref" not in html
+
+
+def test_process_content_venue_ref_link_transform_renders_link(tmp_path: Path) -> None:
+    """`fields="venue:link"` opts back into the old link-cell rendering."""
+    content_path = _write_taiwan_venues(tmp_path)
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    concerts = [
+        {"title": "悟", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}
+    ]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(concerts), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent('{% table data/concerts.yaml fields="title,venue:link" %}')
     _process_content(content, settings, content_path, {}, content_path=content_path)
 
     html = content._content
@@ -1344,6 +1865,82 @@ def test_process_content_resolves_venue_ref(tmp_path: Path) -> None:
     )
     assert expected_href in html
     assert "venue_ref" not in html
+
+
+def test_process_content_global_id_ref_resolves_end_to_end(tmp_path: Path) -> None:
+    """``venue_ref: zepp-new-taipei`` (no ``#``) resolves via the global
+    index over ``TABULAR_REF_ROOTS`` — no path to the target file needed.
+    """
+    content_path = _write_taiwan_venues(tmp_path)
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    concerts = [{"title": "悟", "venue_ref": "zepp-new-taipei"}]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(concerts), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent('{% table data/concerts.yaml fields="title,venue" %}')
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+
+    html = content._content
+    assert "<td>Zepp New Taipei</td>" in html
+
+
+def test_process_content_group_by_nested_ref_field(tmp_path: Path) -> None:
+    """``group_by="venue.city"`` groups concerts by their venue's city — a
+    property of the *referenced* record, reachable purely because a ref now
+    resolves to the whole record rather than a display string.
+    """
+    content_path = tmp_path
+    venues_dir = content_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump(
+            [
+                {
+                    "id": "moondog",
+                    "name": "Moondog",
+                    "city": "台北市",
+                    "lat": 25.0,
+                    "lon": 121.5,
+                },
+                {
+                    "id": "nangang-exhibition-hall-1",
+                    "name": "南港展覽館1館",
+                    "city": "台北市",
+                    "lat": 25.1,
+                    "lon": 121.6,
+                },
+                {
+                    "id": "dajia-riverside-park",
+                    "name": "大佳河濱公園",
+                    "city": "台北市",
+                    "lat": 25.2,
+                    "lon": 121.7,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    concerts = [
+        {"title": "小日向美香", "venue_ref": "moondog"},
+        {"title": "ANISAMA", "venue_ref": "nangang-exhibition-hall-1"},
+    ]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(concerts), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent(
+        '{% table data/concerts.yaml fields="title,venue" '
+        'group_by="venue.city" group_summary_at="venue.city" %}'
+    )
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+
+    html = content._content
+    assert "osm-group-header" in html
+    assert "台北市" in html
+    assert "<td>Moondog</td>" in html
+    assert "<td>南港展覽館1館</td>" in html
 
 
 def test_process_content_ref_text_field_override(tmp_path: Path) -> None:
@@ -1387,14 +1984,230 @@ def test_process_content_ref_href_template_override(tmp_path: Path) -> None:
 
     settings = _make_settings()
     content = _FakeContent(
-        "{% table data/concerts.yaml "
+        "{% table data/concerts.yaml fields=\"venue:link\" "
         'ref_href_template="https://maps.example/{lat},{lon}" %}'
     )
     _process_content(content, settings, content_path, {}, content_path=content_path)
     assert 'href="https://maps.example/25.059661,121.449499"' in content._content
 
 
-def test_process_content_ref_missing_target_degrades_to_raw_string(
+def test_process_content_ref_missing_target_does_not_raise_synchronously(
+    tmp_path: Path,
+) -> None:
+    """`_process_content` must NOT raise, even in strict mode.
+
+    Pelican's content generators wrap each page's processing in a
+    try/except that logs an ERROR and *skips the page*, continuing the
+    build with exit code 0 — see the module comment above `_REF_SUFFIX`.
+    Raising synchronously here would silently delete the page from the
+    site, not fail the build. The page must still render (degraded: the
+    raw ref string stands in for the cell) and the failure must instead be
+    collected into the `ref_errors` list for `_check_ref_errors` to raise
+    from later, once, after every page is done.
+    """
+    content_path = tmp_path
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [{"venue_ref": "places/venues/nope.yaml#some-id"}]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent("{% table data/concerts.yaml %}")
+    ref_errors: list[str] = []
+    _process_content(
+        content,
+        settings,
+        content_path,
+        {},
+        content_path=content_path,
+        ref_errors=ref_errors,
+    )
+    # page still rendered — not lost — with the raw ref string in the cell
+    assert "places/venues/nope.yaml#some-id" in content._content
+    assert "osm-place-list" in content._content
+    # but the failure was collected for the finalized-time check
+    assert len(ref_errors) == 1
+    message = ref_errors[0]
+    assert "places/venues/nope.yaml#some-id" in message
+    assert "venue_ref" in message
+    assert "row 0" in message
+
+
+def test_process_content_collects_errors_across_multiple_shortcodes(
+    tmp_path: Path,
+) -> None:
+    """Two separate `{% table %}` calls on one page, each with a bad ref,
+    both end up in `ref_errors` — not just the first one encountered.
+    """
+    content_path = tmp_path
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    (data_dir / "a.yaml").write_text(
+        yaml.dump([{"venue_ref": "places/venues/nope-a.yaml#x"}]), encoding="utf-8"
+    )
+    (data_dir / "b.yaml").write_text(
+        yaml.dump([{"venue_ref": "places/venues/nope-b.yaml#y"}]), encoding="utf-8"
+    )
+
+    settings = _make_settings()
+    content = _FakeContent(
+        "{% table data/a.yaml %}\n{% table data/b.yaml %}"
+    )
+    ref_errors: list[str] = []
+    _process_content(
+        content,
+        settings,
+        content_path,
+        {},
+        content_path=content_path,
+        ref_errors=ref_errors,
+    )
+    assert len(ref_errors) == 2
+    assert any("nope-a.yaml" in e for e in ref_errors)
+    assert any("nope-b.yaml" in e for e in ref_errors)
+
+
+def _collision_row_content_path(tmp_path: Path) -> Path:
+    content_path = _write_taiwan_venues(tmp_path)
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [
+        {
+            "title": "悟",
+            "venue": "Somewhere I Wrote By Hand",
+            "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei",
+        }
+    ]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+    return content_path
+
+
+def test_process_content_collision_strict_keeps_original_text_and_collects_error(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: a row with both `venue` and `venue_ref` renders the
+    hand-authored `venue` text untouched, in strict mode too — the build
+    still fails (via the collected error), but the page itself is correct.
+    """
+    content_path = _collision_row_content_path(tmp_path)
+    settings = _make_settings()
+    content = _FakeContent('{% table data/concerts.yaml fields="title,venue" %}')
+    ref_errors: list[str] = []
+    _process_content(
+        content,
+        settings,
+        content_path,
+        {},
+        content_path=content_path,
+        ref_errors=ref_errors,
+    )
+    assert "<td>Somewhere I Wrote By Hand</td>" in content._content
+    assert "Zepp New Taipei" not in content._content
+    assert len(ref_errors) == 1
+    assert "venue" in ref_errors[0] and "venue_ref" in ref_errors[0]
+
+
+def test_process_content_collision_non_strict_keeps_original_text_no_error(
+    tmp_path: Path,
+) -> None:
+    content_path = _collision_row_content_path(tmp_path)
+    settings = _make_settings(TABULAR_REF_STRICT=False)
+    content = _FakeContent('{% table data/concerts.yaml fields="title,venue" %}')
+    ref_errors: list[str] = []
+    _process_content(
+        content,
+        settings,
+        content_path,
+        {},
+        content_path=content_path,
+        ref_errors=ref_errors,
+    )
+    assert "<td>Somewhere I Wrote By Hand</td>" in content._content
+    assert "Zepp New Taipei" not in content._content
+    assert ref_errors == []
+
+
+# ---------------------------------------------------------------------------
+# _check_ref_errors (connected to signals.finalized — see module comment
+# above DEFAULT_REF_SUFFIX for why the build-failing raise has to happen
+# here and not synchronously during page processing)
+# ---------------------------------------------------------------------------
+
+
+def test_check_ref_errors_raises_with_every_message_when_errors_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pelican.plugins.tabular.tabular as _mod
+
+    monkeypatch.setattr(_mod, "_ref_errors", ["first error", "second error"])
+    with pytest.raises(TabularRefError) as exc_info:
+        _mod._check_ref_errors(None)
+    message = str(exc_info.value)
+    assert "first error" in message
+    assert "second error" in message
+    assert "2" in message  # error count
+
+
+def test_check_ref_errors_noop_when_no_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pelican.plugins.tabular.tabular as _mod
+
+    monkeypatch.setattr(_mod, "_ref_errors", [])
+    _mod._check_ref_errors(None)  # must not raise
+
+
+def test_register_connects_finalized_to_check_ref_errors() -> None:
+    import pelican.plugins.tabular.tabular as _mod
+    from pelican import signals as _signals
+
+    _mod.register()
+    receivers = [r() for r in _signals.finalized.receivers.values()]
+    assert _mod._check_ref_errors in receivers
+
+
+def test_full_lifecycle_strict_ref_error_fails_via_finalized_signal(
+    tmp_path: Path,
+) -> None:
+    """End-to-end simulation of the real build lifecycle: `_init` resets the
+    accumulator, a page with a bad ref is processed via `_process_article`
+    (which must NOT raise — the page-skip bug this whole fix addresses),
+    and only the `signals.finalized`-connected `_check_ref_errors` call
+    raises, with the bad ref's locator in the message.
+    """
+    import pelican.plugins.tabular.tabular as _mod
+
+    content_dir = tmp_path / "content"
+    data_dir = content_dir / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "concerts.yaml").write_text(
+        yaml.dump([{"venue_ref": "places/venues/nope.yaml#ghost-venue"}]),
+        encoding="utf-8",
+    )
+
+    pelican_obj = MagicMock()
+    pelican_obj.settings = {"PATH": str(content_dir)}
+    with patch.object(_mod, "_register_markdown_extension"):
+        _mod._init(pelican_obj)
+
+    content = MagicMock()
+    content.source_path = str(content_dir / "pages" / "concerts.md")
+    content.url = "concerts/"
+    content._content = "{% table data/concerts.yaml %}"
+
+    # must not raise — this is the exact bug the coordinator caught: a
+    # synchronous raise here only skips this one page, build stays exit 0
+    _mod._process_article(content)
+    assert "places/venues/nope.yaml#ghost-venue" in content._content
+
+    with pytest.raises(TabularRefError) as exc_info:
+        _mod._check_ref_errors(pelican_obj)
+    message = str(exc_info.value)
+    assert "ghost-venue" in message
+    assert "venue_ref" in message
+
+
+def test_process_content_ref_missing_target_degrades_to_raw_string_when_not_strict(
     tmp_path: Path,
 ) -> None:
     content_path = tmp_path
@@ -1403,7 +2216,7 @@ def test_process_content_ref_missing_target_degrades_to_raw_string(
     rows = [{"venue_ref": "places/venues/nope.yaml#some-id"}]
     (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
 
-    settings = _make_settings()
+    settings = _make_settings(TABULAR_REF_STRICT=False)
     content = _FakeContent("{% table data/concerts.yaml %}")
     _process_content(content, settings, content_path, {}, content_path=content_path)
     assert "places/venues/nope.yaml#some-id" in content._content
@@ -1543,107 +2356,59 @@ def test_resolve_ref_href_single_template_backward_compatible() -> None:
     )
 
 
-def test_resolve_ref_value_chain_prefers_osm_id(tmp_path: Path) -> None:
-    venues_dir = tmp_path / "places" / "venues"
-    venues_dir.mkdir(parents=True)
-    (venues_dir / "taiwan.yaml").write_text(
-        yaml.dump(
-            {
-                "locations": [
-                    {
-                        "id": "zepp-new-taipei",
-                        "name": "Zepp New Taipei",
-                        "osm_type": "node",
-                        "osm_id": 13353295908,
-                        "lat": 25.059661,
-                        "lon": 121.449499,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    cache: dict[Path, list[dict[str, Any]]] = {}
+def test_link_transform_chain_prefers_osm_id() -> None:
+    """The fallback chain now applies at render time via the ``:link`` field
+    transform, not at ref resolution — ``_resolve_ref_value`` just hands back
+    the whole record; ``_field_value(..., "venue:link", ctx)`` is what builds
+    the href.
+    """
+    record = {
+        "id": "zepp-new-taipei",
+        "name": "Zepp New Taipei",
+        "osm_type": "node",
+        "osm_id": 13353295908,
+        "lat": 25.059661,
+        "lon": 121.449499,
+    }
     chain = (
         "https://www.openstreetmap.org/{osm_type}/{osm_id}"
         "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
     )
-    result = _resolve_ref_value(
-        "places/venues/taiwan.yaml#zepp-new-taipei",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=chain,
-        field_name="venue_ref",
-        row_index=0,
-    )
+    ctx = RefRenderContext(frozenset({"venue"}), DEFAULT_REF_TEXT_FIELD, chain)
+    result = _field_value({"venue": record}, "venue:link", ctx)
     assert result == {
         "text": "Zepp New Taipei",
         "href": "https://www.openstreetmap.org/node/13353295908",
     }
 
 
-def test_resolve_ref_value_chain_falls_back_without_osm_id(tmp_path: Path) -> None:
-    venues_dir = tmp_path / "places" / "venues"
-    venues_dir.mkdir(parents=True)
-    (venues_dir / "taiwan.yaml").write_text(
-        yaml.dump(
-            {
-                "locations": [
-                    {
-                        "id": "linkou-gymnasium",
-                        "name": "林口體育館",
-                        "lat": 25.0695,
-                        "lon": 121.3647,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    cache: dict[Path, list[dict[str, Any]]] = {}
+def test_link_transform_chain_falls_back_without_osm_id() -> None:
+    record = {
+        "id": "linkou-gymnasium",
+        "name": "林口體育館",
+        "lat": 25.0695,
+        "lon": 121.3647,
+    }
     chain = (
         "https://www.openstreetmap.org/{osm_type}/{osm_id}"
         "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
     )
-    result = _resolve_ref_value(
-        "places/venues/taiwan.yaml#linkou-gymnasium",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=chain,
-        field_name="venue_ref",
-        row_index=0,
-    )
+    ctx = RefRenderContext(frozenset({"venue"}), DEFAULT_REF_TEXT_FIELD, chain)
+    result = _field_value({"venue": record}, "venue:link", ctx)
     assert result == {
         "text": "林口體育館",
         "href": "https://www.openstreetmap.org/?#map=16/25.0695/121.3647",
     }
 
 
-def test_resolve_ref_value_chain_all_inapplicable_yields_plain_text(
-    tmp_path: Path,
-) -> None:
-    venues_dir = tmp_path / "places" / "venues"
-    venues_dir.mkdir(parents=True)
-    (venues_dir / "taiwan.yaml").write_text(
-        yaml.dump({"locations": [{"id": "no-coords", "name": "No Coords Venue"}]}),
-        encoding="utf-8",
-    )
-    cache: dict[Path, list[dict[str, Any]]] = {}
+def test_link_transform_chain_all_inapplicable_yields_plain_text() -> None:
+    record = {"id": "no-coords", "name": "No Coords Venue"}
     chain = (
         "https://www.openstreetmap.org/{osm_type}/{osm_id}"
         "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
     )
-    result = _resolve_ref_value(
-        "places/venues/taiwan.yaml#no-coords",
-        content_path=tmp_path,
-        cache=cache,
-        text_field=DEFAULT_REF_TEXT_FIELD,
-        href_template=chain,
-        field_name="venue_ref",
-        row_index=0,
-    )
+    ctx = RefRenderContext(frozenset({"venue"}), DEFAULT_REF_TEXT_FIELD, chain)
+    result = _field_value({"venue": record}, "venue:link", ctx)
     assert result == "No Coords Venue"
 
 
@@ -1684,7 +2449,7 @@ def test_process_content_ref_href_chain_end_to_end(tmp_path: Path) -> None:
 
     settings = _make_settings()
     content = _FakeContent(
-        "{% table data/concerts.yaml "
+        '{% table data/concerts.yaml fields="title,venue:link" '
         'ref_href_template="https://www.openstreetmap.org/{osm_type}/{osm_id}'
         '|https://www.openstreetmap.org/?#map=16/{lat}/{lon}" %}'
     )
