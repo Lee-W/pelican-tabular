@@ -71,7 +71,12 @@ def _resolve_group_count_template(pelican_settings: dict[str, Any]) -> str:
 
 
 DEFAULT_REF_TEXT_FIELD = "name"
-DEFAULT_REF_HREF_TEMPLATE = "https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
+# Marker form (``?mlat=&mlon=``) rather than a bare ``#map=`` centre: the
+# former drops a pin on the place, the latter only centres the viewport and
+# leaves the reader guessing which building is meant.
+DEFAULT_REF_HREF_TEMPLATE = (
+    "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}"
+)
 
 
 def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
@@ -378,12 +383,20 @@ def _split_ref_href_templates(raw: str) -> list[str]:
 
 
 def _template_fields(template: str) -> list[str]:
-    """Return the ``{placeholder}`` field names referenced by ``template``."""
-    return [
-        field_name
-        for _, field_name, _, _ in string.Formatter().parse(template)
-        if field_name
-    ]
+    """Return the distinct ``{placeholder}`` field names in ``template``.
+
+    Deduplicated, first-appearance order preserved. A template may legitimately
+    repeat a placeholder — an OpenStreetMap marker URL uses ``{lat}``/``{lon}``
+    twice, once for the pin and once for the map centre — and the applicability
+    check would otherwise test the same field several times per template.
+    """
+    return list(
+        dict.fromkeys(
+            field_name
+            for _, field_name, _, _ in string.Formatter().parse(template)
+            if field_name
+        )
+    )
 
 
 def _template_is_applicable(template: str, item: dict[str, Any]) -> bool:
