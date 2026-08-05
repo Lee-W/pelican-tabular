@@ -15,6 +15,8 @@ from pelican.plugins.tabular.tabular import (
     BUILTIN_GROUP_COUNT_TEMPLATES,
     DEFAULT_COUNT_TEMPLATE,
     DEFAULT_GROUP_COUNT_TEMPLATE,
+    DEFAULT_REF_HREF_TEMPLATE,
+    DEFAULT_REF_TEXT_FIELD,
     _aggregate_field,
     _cell_value,
     _collapse_rows,
@@ -22,9 +24,12 @@ from pelican.plugins.tabular.tabular import (
     _extract_year,
     _extract_years,
     _field_transform,
+    _find_ref_item,
+    _format_ref_href,
     _format_scalar,
     _group_key_value,
     _load_data_file,
+    _load_ref_file,
     _make_pattern,
     _parse_aggregate_kwarg,
     _parse_csv_kwarg,
@@ -34,10 +39,16 @@ from pelican.plugins.tabular.tabular import (
     _resolve_count_template,
     _resolve_filename_url,
     _resolve_group_count_template,
+    _resolve_ref_href,
+    _resolve_ref_rows,
+    _resolve_ref_value,
     _resolve_rows,
     _resolve_settings,
     _resolve_value,
     _slugify,
+    _split_ref_href_templates,
+    _template_fields,
+    _template_is_applicable,
 )
 
 # ---------------------------------------------------------------------------
@@ -1025,3 +1036,622 @@ def test_render_group_by_year_creates_year_header() -> None:
     assert ">2025</strong>" in html
     # date column is independent of the derived year grouping
     assert "<td>2026-06-02</td>" in html
+
+
+# ---------------------------------------------------------------------------
+# _load_ref_file / _find_ref_item / _format_ref_href
+# ---------------------------------------------------------------------------
+
+
+def test_load_ref_file_locations_based(tmp_path: Path) -> None:
+    f = tmp_path / "venues.yaml"
+    f.write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "zepp-new-taipei",
+                        "name": "Zepp New Taipei",
+                        "lat": 25.06,
+                        "lon": 121.45,
+                    },
+                    {
+                        "id": "legacy-taipei",
+                        "name": "Legacy Taipei",
+                        "lat": 25.05,
+                        "lon": 121.53,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    items = _load_ref_file(f, cache)
+    assert [i["id"] for i in items] == ["zepp-new-taipei", "legacy-taipei"]
+
+
+def test_load_ref_file_top_level_list(tmp_path: Path) -> None:
+    f = tmp_path / "venues.yaml"
+    f.write_text(
+        yaml.dump([{"id": "a", "name": "A", "lat": 1.0, "lon": 2.0}]),
+        encoding="utf-8",
+    )
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    items = _load_ref_file(f, cache)
+    assert items == [{"id": "a", "name": "A", "lat": 1.0, "lon": 2.0}]
+
+
+def test_load_ref_file_malformed_raises(tmp_path: Path) -> None:
+    f = tmp_path / "venues.yaml"
+    f.write_text("not: [valid, yaml: :", encoding="utf-8")
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    with pytest.raises(yaml.YAMLError):
+        _load_ref_file(f, cache)
+
+
+def test_load_ref_file_wrong_top_level_shape_raises(tmp_path: Path) -> None:
+    f = tmp_path / "venues.yaml"
+    f.write_text(yaml.dump("just a string"), encoding="utf-8")
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    with pytest.raises(TypeError):
+        _load_ref_file(f, cache)
+
+
+def test_load_ref_file_uses_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = tmp_path / "venues.yaml"
+    f.write_text(yaml.dump([{"id": "a", "name": "A"}]), encoding="utf-8")
+    cache: dict[Path, list[dict[str, Any]]] = {}
+
+    calls = {"n": 0}
+    original_read_text = Path.read_text
+
+    def counting_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == f:
+            calls["n"] += 1
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+
+    _load_ref_file(f, cache)
+    _load_ref_file(f, cache)
+    _load_ref_file(f, cache)
+    assert calls["n"] == 1
+
+
+def test_find_ref_item_by_id() -> None:
+    items = [{"id": "a", "name": "Alpha"}, {"id": "b", "name": "Beta"}]
+    assert _find_ref_item(items, "b") == {"id": "b", "name": "Beta"}
+
+
+def test_find_ref_item_falls_back_to_name() -> None:
+    items = [{"name": "Alpha"}, {"name": "Beta"}]
+    assert _find_ref_item(items, "Beta") == {"name": "Beta"}
+
+
+def test_find_ref_item_not_found_returns_none() -> None:
+    items = [{"id": "a", "name": "Alpha"}]
+    assert _find_ref_item(items, "missing") is None
+
+
+def test_format_ref_href_fills_placeholders() -> None:
+    result = _format_ref_href("https://x/{lat}/{lon}", {"lat": 25.06, "lon": 121.45})
+    assert result == "https://x/25.06/121.45"
+
+
+def test_format_ref_href_missing_key_is_empty() -> None:
+    result = _format_ref_href("https://x/{lat}/{lon}", {"lat": 25.06})
+    assert result == "https://x/25.06/"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_ref_value / _resolve_ref_rows
+# ---------------------------------------------------------------------------
+
+
+def _write_taiwan_venues(tmp_path: Path) -> Path:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    f = venues_dir / "taiwan.yaml"
+    f.write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "zepp-new-taipei",
+                        "name": "Zepp New Taipei",
+                        "lat": 25.059661,
+                        "lon": 121.449499,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_resolve_ref_value_normal(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#zepp-new-taipei",
+        content_path=content_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == {
+        "text": "Zepp New Taipei",
+        "href": "https://www.openstreetmap.org/?#map=16/25.059661/121.449499",
+    }
+
+
+def test_resolve_ref_value_missing_hash_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == "places/venues/taiwan.yaml"
+    assert "missing" in caplog.text
+
+
+def test_resolve_ref_value_file_not_found_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_value(
+        "places/venues/missing.yaml#zepp-new-taipei",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == "places/venues/missing.yaml#zepp-new-taipei"
+    assert "not found" in caplog.text
+
+
+def test_resolve_ref_value_id_not_found_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    content_path = _write_taiwan_venues(tmp_path)
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#no-such-id",
+        content_path=content_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == "places/venues/taiwan.yaml#no-such-id"
+    assert "not found" in caplog.text
+
+
+def test_resolve_ref_value_malformed_yaml_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text("not: [valid, yaml: :", encoding="utf-8")
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#zepp-new-taipei",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == "places/venues/taiwan.yaml#zepp-new-taipei"
+    assert "failed to load" in caplog.text
+
+
+def test_resolve_ref_rows_replaces_field_name(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [{"title": "悟", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}]
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    result = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+    )
+    assert result == [
+        {
+            "title": "悟",
+            "venue": {
+                "text": "Zepp New Taipei",
+                "href": "https://www.openstreetmap.org/?#map=16/25.059661/121.449499",
+            },
+        }
+    ]
+
+
+def test_resolve_ref_rows_shares_cache_across_rows(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    rows = [
+        {"title": "A", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"},
+        {"title": "B", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"},
+    ]
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=DEFAULT_REF_HREF_TEMPLATE,
+    )
+    assert len(cache) == 1
+
+
+# ---------------------------------------------------------------------------
+# _process_content: end-to-end ``venue_ref`` rendering
+# ---------------------------------------------------------------------------
+
+
+def test_process_content_resolves_venue_ref(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    concerts = [
+        {
+            "title": {"text": "藥師寺寬邦「悟」", "href": "https://example.com/goo"},
+            "date": datetime.date(2024, 10, 25),
+            "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei",
+        }
+    ]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(concerts), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent("{% table data/concerts.yaml %}")
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+
+    html = content._content
+    assert "Zepp New Taipei" in html
+    assert 'href="https://www.openstreetmap.org/?#map=16/25.059661/121.449499"' in html
+    assert "venue_ref" not in html
+
+
+def test_process_content_ref_text_field_override(tmp_path: Path) -> None:
+    content_path = tmp_path
+    venues_dir = content_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "zepp-new-taipei",
+                        "name": "Zepp New Taipei",
+                        "label": "北車 Zepp",
+                        "lat": 25.06,
+                        "lon": 121.45,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [{"venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent('{% table data/concerts.yaml ref_text_field="label" %}')
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+    assert "北車 Zepp" in content._content
+    assert "<td>Zepp New Taipei</td>" not in content._content
+
+
+def test_process_content_ref_href_template_override(tmp_path: Path) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [{"venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"}]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent(
+        "{% table data/concerts.yaml "
+        'ref_href_template="https://maps.example/{lat},{lon}" %}'
+    )
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+    assert 'href="https://maps.example/25.059661,121.449499"' in content._content
+
+
+def test_process_content_ref_missing_target_degrades_to_raw_string(
+    tmp_path: Path,
+) -> None:
+    content_path = tmp_path
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [{"venue_ref": "places/venues/nope.yaml#some-id"}]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent("{% table data/concerts.yaml %}")
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+    assert "places/venues/nope.yaml#some-id" in content._content
+
+
+# ---------------------------------------------------------------------------
+# ref_href_template fallback chain
+# ---------------------------------------------------------------------------
+
+
+def test_split_ref_href_templates_single() -> None:
+    assert _split_ref_href_templates("https://x/{lat}/{lon}") == [
+        "https://x/{lat}/{lon}"
+    ]
+
+
+def test_split_ref_href_templates_chain() -> None:
+    raw = "https://x/{osm_type}/{osm_id}|https://x/?#map=16/{lat}/{lon}"
+    assert _split_ref_href_templates(raw) == [
+        "https://x/{osm_type}/{osm_id}",
+        "https://x/?#map=16/{lat}/{lon}",
+    ]
+
+
+def test_split_ref_href_templates_drops_blank_segments() -> None:
+    assert _split_ref_href_templates("https://x/{lat}|") == ["https://x/{lat}"]
+
+
+def test_template_fields_extracts_placeholders() -> None:
+    assert _template_fields("https://x/{osm_type}/{osm_id}") == [
+        "osm_type",
+        "osm_id",
+    ]
+
+
+def test_template_fields_no_placeholders() -> None:
+    assert _template_fields("https://x/static") == []
+
+
+def test_template_is_applicable_all_present() -> None:
+    item = {"osm_type": "node", "osm_id": 123}
+    assert _template_is_applicable("https://x/{osm_type}/{osm_id}", item) is True
+
+
+def test_template_is_applicable_missing_key() -> None:
+    item = {"osm_type": "node"}
+    assert _template_is_applicable("https://x/{osm_type}/{osm_id}", item) is False
+
+
+def test_template_is_applicable_none_value() -> None:
+    item = {"osm_type": "node", "osm_id": None}
+    assert _template_is_applicable("https://x/{osm_type}/{osm_id}", item) is False
+
+
+def test_template_is_applicable_empty_string_value() -> None:
+    item = {"osm_type": "node", "osm_id": ""}
+    assert _template_is_applicable("https://x/{osm_type}/{osm_id}", item) is False
+
+
+def test_template_is_applicable_no_placeholders_always_true() -> None:
+    assert _template_is_applicable("https://x/static", {}) is True
+
+
+def test_resolve_ref_href_first_template_applicable() -> None:
+    templates = [
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}",
+        "https://www.openstreetmap.org/?#map=16/{lat}/{lon}",
+    ]
+    item = {"osm_type": "node", "osm_id": 13353295908, "lat": 25.06, "lon": 121.45}
+    assert (
+        _resolve_ref_href(templates, item)
+        == "https://www.openstreetmap.org/node/13353295908"
+    )
+
+
+def test_resolve_ref_href_falls_back_to_second_template() -> None:
+    templates = [
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}",
+        "https://www.openstreetmap.org/?#map=16/{lat}/{lon}",
+    ]
+    item = {"lat": 25.059661, "lon": 121.449499}
+    assert (
+        _resolve_ref_href(templates, item)
+        == "https://www.openstreetmap.org/?#map=16/25.059661/121.449499"
+    )
+
+
+def test_resolve_ref_href_no_template_applicable_returns_empty() -> None:
+    templates = [
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}",
+        "https://www.openstreetmap.org/?#map=16/{lat}/{lon}",
+    ]
+    item = {"name": "Somewhere with no coordinates at all"}
+    assert _resolve_ref_href(templates, item) == ""
+
+
+def test_resolve_ref_href_single_template_backward_compatible() -> None:
+    templates = ["https://www.openstreetmap.org/?#map=16/{lat}/{lon}"]
+    item = {"lat": 25.06, "lon": 121.45}
+    assert (
+        _resolve_ref_href(templates, item)
+        == "https://www.openstreetmap.org/?#map=16/25.06/121.45"
+    )
+
+
+def test_resolve_ref_value_chain_prefers_osm_id(tmp_path: Path) -> None:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "zepp-new-taipei",
+                        "name": "Zepp New Taipei",
+                        "osm_type": "node",
+                        "osm_id": 13353295908,
+                        "lat": 25.059661,
+                        "lon": 121.449499,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    chain = (
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}"
+        "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
+    )
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#zepp-new-taipei",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=chain,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == {
+        "text": "Zepp New Taipei",
+        "href": "https://www.openstreetmap.org/node/13353295908",
+    }
+
+
+def test_resolve_ref_value_chain_falls_back_without_osm_id(tmp_path: Path) -> None:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "linkou-gymnasium",
+                        "name": "林口體育館",
+                        "lat": 25.0695,
+                        "lon": 121.3647,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    chain = (
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}"
+        "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
+    )
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#linkou-gymnasium",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=chain,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == {
+        "text": "林口體育館",
+        "href": "https://www.openstreetmap.org/?#map=16/25.0695/121.3647",
+    }
+
+
+def test_resolve_ref_value_chain_all_inapplicable_yields_plain_text(
+    tmp_path: Path,
+) -> None:
+    venues_dir = tmp_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump({"locations": [{"id": "no-coords", "name": "No Coords Venue"}]}),
+        encoding="utf-8",
+    )
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    chain = (
+        "https://www.openstreetmap.org/{osm_type}/{osm_id}"
+        "|https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
+    )
+    result = _resolve_ref_value(
+        "places/venues/taiwan.yaml#no-coords",
+        content_path=tmp_path,
+        cache=cache,
+        text_field=DEFAULT_REF_TEXT_FIELD,
+        href_template=chain,
+        field_name="venue_ref",
+        row_index=0,
+    )
+    assert result == "No Coords Venue"
+
+
+def test_process_content_ref_href_chain_end_to_end(tmp_path: Path) -> None:
+    content_path = tmp_path
+    venues_dir = content_path / "places" / "venues"
+    venues_dir.mkdir(parents=True)
+    (venues_dir / "taiwan.yaml").write_text(
+        yaml.dump(
+            {
+                "locations": [
+                    {
+                        "id": "zepp-new-taipei",
+                        "name": "Zepp New Taipei",
+                        "osm_type": "node",
+                        "osm_id": 13353295908,
+                        "lat": 25.059661,
+                        "lon": 121.449499,
+                    },
+                    {
+                        "id": "linkou-gymnasium",
+                        "name": "林口體育館",
+                        "lat": 25.0695,
+                        "lon": 121.3647,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_dir = content_path / "data"
+    data_dir.mkdir()
+    rows = [
+        {"title": "A", "venue_ref": "places/venues/taiwan.yaml#zepp-new-taipei"},
+        {"title": "B", "venue_ref": "places/venues/taiwan.yaml#linkou-gymnasium"},
+    ]
+    (data_dir / "concerts.yaml").write_text(yaml.dump(rows), encoding="utf-8")
+
+    settings = _make_settings()
+    content = _FakeContent(
+        "{% table data/concerts.yaml "
+        'ref_href_template="https://www.openstreetmap.org/{osm_type}/{osm_id}'
+        '|https://www.openstreetmap.org/?#map=16/{lat}/{lon}" %}'
+    )
+    _process_content(content, settings, content_path, {}, content_path=content_path)
+
+    html = content._content
+    assert 'href="https://www.openstreetmap.org/node/13353295908"' in html
+    assert 'href="https://www.openstreetmap.org/?#map=16/25.0695/121.3647"' in html
