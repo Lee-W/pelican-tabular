@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import shlex
+import string
 from collections import defaultdict
 from io import StringIO
 from pathlib import Path
@@ -69,6 +70,10 @@ def _resolve_group_count_template(pelican_settings: dict[str, Any]) -> str:
     return DEFAULT_GROUP_COUNT_TEMPLATE
 
 
+DEFAULT_REF_TEXT_FIELD = "name"
+DEFAULT_REF_HREF_TEMPLATE = "https://www.openstreetmap.org/?#map=16/{lat}/{lon}"
+
+
 def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
     return {
         "shortcode": pelican_settings.get("TABULAR_SHORTCODE", DEFAULT_SHORTCODE),
@@ -78,6 +83,12 @@ def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
         "group_count_template": _resolve_group_count_template(pelican_settings),
         "date_format": pelican_settings.get("TABULAR_DATE_FORMAT", ""),
         "siteurl": pelican_settings.get("SITEURL", "").rstrip("/"),
+        "ref_text_field": pelican_settings.get(
+            "TABULAR_REF_TEXT_FIELD", DEFAULT_REF_TEXT_FIELD
+        ),
+        "ref_href_template": pelican_settings.get(
+            "TABULAR_REF_HREF_TEMPLATE", DEFAULT_REF_HREF_TEMPLATE
+        ),
     }
 
 
@@ -256,6 +267,244 @@ def _resolve_rows(
     return [
         {k: _resolve_value(v, article_url_map) for k, v in row.items()} for row in rows
     ]
+
+
+# --- cross-file references (``<field>_ref``) ---------------------------------
+#
+# A field named ``<name>_ref`` with a string value ``"<path>#<id>"`` lets a
+# data row point at a single record in another YAML file instead of
+# duplicating that record's data locally. ``<path>`` is resolved relative to
+# Pelican's content root (``_content_path`` in ``_init``, threaded through as
+# ``content_path`` below) — not the (possibly different) ``TABULAR_DATA_ROOT``
+# that the row's own file was loaded from. This keeps the reference portable:
+# it reads the same regardless of which data root the referencing table uses.
+#
+# The referenced file may be either pelican-osm's locations-based shape
+# (a ``locations:`` list of dicts, each optionally carrying an ``id``) or a
+# bare top-level list of dicts. ``<id>`` is matched against each candidate's
+# ``id`` field first, falling back to its ``name`` field, mirroring
+# pelican-osm's own ``#fragment`` lookup semantics so authors only need to
+# learn one convention.
+#
+# Resolution never fails the build: a missing file, an unresolvable id, or a
+# malformed YAML document all degrade to showing the raw ``"<path>#<id>"``
+# string (with a ``log.warning``) rather than raising.
+#
+# ``ref_href_template``/``TABULAR_REF_HREF_TEMPLATE`` may hold a ``|``-
+# separated chain of templates rather than a single one — real place data is
+# often inconsistent about which fields it has (e.g. some records carry a
+# stable OSM node id, older ones only have raw lat/lon). Templates are tried
+# in order; the first one whose placeholders are *all* present and non-empty
+# in the resolved record wins. This is deliberate: silently filling a missing
+# placeholder with "" (as a plain ``str.format_map`` would) produces a
+# malformed-but-plausible-looking URL, which is worse than falling through to
+# a template that actually fits the data. ``|`` was chosen as the separator
+# because it practically never appears literally in a URL template (and
+# would be percent-encoded as ``%7C`` if it legitimately needed to).
+
+_REF_SUFFIX = "_ref"
+_REF_HREF_TEMPLATE_SEP = "|"
+
+
+def _load_ref_file(
+    path: Path, cache: dict[Path, list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """Load a ref-target YAML file, memoized in ``cache`` for this build.
+
+    Supports pelican-osm's locations-based shape (``{"locations": [...]}``)
+    and a bare top-level list of dicts.
+    """
+    resolved = path.resolve()
+    if resolved in cache:
+        return cache[resolved]
+
+    text = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+
+    if isinstance(data, dict) and "locations" in data:
+        items = data.get("locations") or []
+        if not isinstance(items, list):
+            raise TypeError(f"'locations' in {path} is not a list")
+    elif isinstance(data, list):
+        items = data
+    else:
+        raise TypeError(
+            f"Expected a list or a 'locations:' mapping in {path}, "
+            f"got {type(data).__name__}"
+        )
+
+    result = [item for item in items if isinstance(item, dict)]
+    cache[resolved] = result
+    return result
+
+
+def _find_ref_item(items: list[dict[str, Any]], ref_id: str) -> dict[str, Any] | None:
+    for item in items:
+        if str(item.get("id", "")) == ref_id:
+            return item
+    for item in items:
+        if str(item.get("name", "")) == ref_id:
+            return item
+    return None
+
+
+def _format_ref_href(template: str, item: dict[str, Any]) -> str:
+    """``str.format_map`` against ``item``, treating missing keys as ''.
+
+    Missing/unset keys degrade to an empty string instead of raising, so an
+    href template referencing a field the target happens to lack (e.g. no
+    ``lon``) yields a harmless empty href rather than crashing the build.
+    Callers that need to *avoid* ever emitting such a partially-filled href
+    should check ``_template_is_applicable`` first (``_resolve_ref_href``
+    does this for the whole fallback chain).
+    """
+
+    class _SafeDict(dict[str, Any]):
+        def __missing__(self, key: str) -> str:
+            return ""
+
+    return template.format_map(_SafeDict(item))
+
+
+def _split_ref_href_templates(raw: str) -> list[str]:
+    """Split a ``ref_href_template`` value into its fallback chain.
+
+    Templates are separated by ``|`` (see the module comment above
+    ``_REF_SUFFIX`` for why). Blank segments (e.g. a trailing separator) are
+    dropped. A single template with no ``|`` yields a one-element list, so
+    the existing single-template call sites keep working unchanged.
+    """
+    return [t for t in raw.split(_REF_HREF_TEMPLATE_SEP) if t.strip()]
+
+
+def _template_fields(template: str) -> list[str]:
+    """Return the ``{placeholder}`` field names referenced by ``template``."""
+    return [
+        field_name
+        for _, field_name, _, _ in string.Formatter().parse(template)
+        if field_name
+    ]
+
+
+def _template_is_applicable(template: str, item: dict[str, Any]) -> bool:
+    """True if every placeholder in ``template`` is present and non-empty."""
+    for field in _template_fields(template):
+        value = item.get(field)
+        if value is None or value == "":
+            return False
+    return True
+
+
+def _resolve_ref_href(templates: list[str], item: dict[str, Any]) -> str:
+    """Try each template in order; return the first fully-applicable one.
+
+    Returns ``""`` if no template's placeholders are all satisfied — callers
+    treat that as "render plain text, no link" rather than emitting a
+    malformed href with empty placeholder gaps.
+    """
+    for template in templates:
+        if _template_is_applicable(template, item):
+            return _format_ref_href(template, item)
+    return ""
+
+
+def _resolve_ref_value(
+    raw_ref: str,
+    *,
+    content_path: Path,
+    cache: dict[Path, list[dict[str, Any]]],
+    text_field: str,
+    href_template: str,
+    field_name: str,
+    row_index: int,
+) -> Any:
+    if "#" not in raw_ref:
+        log.warning(
+            "pelican-tabular: ref %r in field %r (row %d) is missing "
+            "'#<id>'; showing raw value",
+            raw_ref,
+            field_name,
+            row_index,
+        )
+        return raw_ref
+
+    rel_path, _, ref_id = raw_ref.partition("#")
+    target_path = content_path / rel_path
+
+    if not target_path.exists():
+        log.warning(
+            "pelican-tabular: ref target file not found: %s "
+            "(from %r in field %r, row %d)",
+            target_path,
+            raw_ref,
+            field_name,
+            row_index,
+        )
+        return raw_ref
+
+    try:
+        items = _load_ref_file(target_path, cache)
+    except Exception as exc:
+        log.warning(
+            "pelican-tabular: failed to load ref target %s "
+            "(from %r in field %r, row %d): %s",
+            target_path,
+            raw_ref,
+            field_name,
+            row_index,
+            exc,
+        )
+        return raw_ref
+
+    item = _find_ref_item(items, ref_id)
+    if item is None:
+        log.warning(
+            "pelican-tabular: ref id %r not found in %s (field %r, row %d)",
+            ref_id,
+            target_path,
+            field_name,
+            row_index,
+        )
+        return raw_ref
+
+    text = item.get(text_field, item.get("name", ref_id))
+    templates = _split_ref_href_templates(href_template)
+    href = _resolve_ref_href(templates, item)
+    if not href:
+        return text
+    return {"text": text, "href": href}
+
+
+def _resolve_ref_rows(
+    rows: list[dict[str, Any]],
+    *,
+    content_path: Path,
+    cache: dict[Path, list[dict[str, Any]]],
+    text_field: str,
+    href_template: str,
+) -> list[dict[str, Any]]:
+    resolved_rows: list[dict[str, Any]] = []
+    for i, row in enumerate(rows):
+        new_row = dict(row)
+        for key in list(new_row.keys()):
+            if not key.endswith(_REF_SUFFIX):
+                continue
+            value = new_row[key]
+            if not isinstance(value, str):
+                continue
+            target_field = key[: -len(_REF_SUFFIX)]
+            del new_row[key]
+            new_row[target_field] = _resolve_ref_value(
+                value,
+                content_path=content_path,
+                cache=cache,
+                text_field=text_field,
+                href_template=href_template,
+                field_name=key,
+                row_index=i,
+            )
+        resolved_rows.append(new_row)
+    return resolved_rows
 
 
 # --- grouping / collapsing (ported from pelican-osm) ------------------------
@@ -568,8 +817,10 @@ def _replace_match(
     match: re.Match[str],
     *,
     data_root: Path,
+    content_path: Path,
     settings: dict[str, Any],
     article_url_map: dict[str, str],
+    ref_cache: dict[Path, list[dict[str, Any]]],
 ) -> str:
     raw = match.group(1)
     try:
@@ -593,6 +844,16 @@ def _replace_match(
         return f'<p class="tabular-error">Failed to load {esc_path}: {esc_exc}</p>'
 
     rows = _resolve_rows(rows, article_url_map)
+
+    ref_text_field = kwargs.get("ref_text_field") or settings["ref_text_field"]
+    ref_href_template = kwargs.get("ref_href_template") or settings["ref_href_template"]
+    rows = _resolve_ref_rows(
+        rows,
+        content_path=content_path,
+        cache=ref_cache,
+        text_field=ref_text_field,
+        href_template=ref_href_template,
+    )
 
     hidden_raw = kwargs.get("hidden", "")
     hidden = {h.strip() for h in hidden_raw.split(",") if h.strip()}
@@ -636,15 +897,29 @@ def _process_content(
     settings: dict[str, Any],
     data_root: Path,
     article_url_map: dict[str, str],
+    content_path: Path | None = None,
+    ref_cache: dict[Path, list[dict[str, Any]]] | None = None,
 ) -> None:
     if not content._content:
         return
     pattern = _make_pattern(settings["shortcode"])
     if not pattern.search(content._content):
         return
+    # ``content_path`` is the basis for ``<field>_ref`` target paths; it
+    # defaults to ``data_root`` (matching ``_init``'s own default) so callers
+    # that don't use refs, including existing tests, need not pass it.
+    resolved_content_path = content_path if content_path is not None else data_root
+    resolved_ref_cache: dict[Path, list[dict[str, Any]]] = (
+        ref_cache if ref_cache is not None else {}
+    )
     content._content = pattern.sub(
         lambda m: _replace_match(
-            m, data_root=data_root, settings=settings, article_url_map=article_url_map
+            m,
+            data_root=data_root,
+            content_path=resolved_content_path,
+            settings=settings,
+            article_url_map=article_url_map,
+            ref_cache=resolved_ref_cache,
         ),
         content._content,
     )
@@ -693,12 +968,14 @@ _settings: dict[str, Any] | None = None
 _data_root: Path | None = None
 _content_path: Path | None = None
 _article_url_map: dict[str, str] = {}
+_ref_cache: dict[Path, list[dict[str, Any]]] = {}
 
 
 def _init(pelican: Any) -> None:
-    global _settings, _data_root, _content_path, _article_url_map
+    global _settings, _data_root, _content_path, _article_url_map, _ref_cache
     _settings = _resolve_settings(pelican.settings)
     _article_url_map = {}
+    _ref_cache = {}
 
     raw_path = pelican.settings.get("PATH", "content")
     content_path = Path(raw_path)
@@ -740,7 +1017,14 @@ def _process_article(content: Article | Page) -> None:
         except ValueError:
             pass
 
-    _process_content(content, _settings, _data_root, _article_url_map)
+    _process_content(
+        content,
+        _settings,
+        _data_root,
+        _article_url_map,
+        content_path=_content_path,
+        ref_cache=_ref_cache,
+    )
 
 
 def register() -> None:
