@@ -1,0 +1,133 @@
+/* Reduced regression fixture from Lee-W/attila 0342e52 (MIT, see LICENSE).
+   Exact article table/form rules; root and brand tokens match the consuming sites. */
+html { font-size: 62.5%; color-scheme: light dark; }
+html.theme-light { color-scheme: light; }
+html.theme-dark { color-scheme: dark; }
+:root {
+  --brand: #b3573a;
+  --color-primary: var(--brand);
+  --color-primary-active: #9c4227;
+  --color-background-main: light-dark(#fff, #222426);
+  --color-background-secondary: light-dark(#f7f8fa, #1d1f20);
+  --color-background-contrast: light-dark(#e1e3e6, #3b3d40);
+  --color-content-main: light-dark(#222426, #e1e3e6);
+  --color-content-secondary: light-dark(#73777d, #909499);
+}
+body { font-family: sans-serif; font-size: 2rem; margin: 0; color: var(--color-content-main); background: var(--color-background-main); }
+body.site-travlog { --brand: #4a8a63; }
+.post-content { max-width: 80rem; margin: auto; padding: 2rem; }
+.post-content table {
+  width: 100%;
+  margin: 0 0 4rem;
+  border: 0;
+  background: transparent;
+}
+
+.post-content table td,
+.post-content table th {
+  padding: 0.6em 0.8em;
+  font-size: 0.95em;
+  line-height: 1.5;
+  border: 1px solid var(--color-background-contrast);
+  border-bottom: 1px solid var(--color-background-contrast);
+  text-align: start;
+}
+
+.post-content table th {
+  font-weight: 600;
+  color: var(--color-content-secondary);
+  border-bottom: 2px solid var(--color-background-contrast);
+}
+
+.post-content table tbody tr:hover {
+  background: var(--color-background-secondary);
+}
+
+.post-content select,
+.post-content textarea,
+.post-content input[type="url"],
+.post-content input[type="tel"],
+.post-content input[type="text"],
+.post-content input[type="email"],
+.post-content input[type="month"],
+.post-content input[type="number"],
+.post-content input[type="search"],
+.post-content input[type="password"] {
+  width: 100%;
+  height: auto;
+  padding: 1rem;
+  box-sizing: border-box;
+  transition: all ease-out 0.1s;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: normal;
+  appearance: normal;
+  border-radius: 0;
+  color: var(--color-content-main);
+  border: 1px solid var(--color-content-secondary);
+  background: transparent;
+}
+
+.post-content select:hover,
+.post-content textarea:hover,
+.post-content input[type="url"]:hover,
+.post-content input[type="tel"]:hover,
+.post-content input[type="text"]:hover,
+.post-content input[type="email"]:hover,
+.post-content input[type="month"]:hover,
+.post-content input[type="number"]:hover,
+.post-content input[type="search"]:hover,
+.post-content input[type="password"]:hover {
+  border-color: var(--color-content-main);
+}
+
+.post-content select:focus,
+.post-content textarea:focus,
+.post-content input[type="url"]:focus,
+.post-content input[type="tel"]:focus,
+.post-content input[type="text"]:focus,
+.post-content input[type="email"]:focus,
+.post-content input[type="month"]:focus,
+.post-content input[type="number"]:focus,
+.post-content input[type="search"]:focus,
+.post-content input[type="password"]:focus {
+  border-color: var(--color-primary);
+}
+
+.post-content input[type="reset"],
+.post-content input[type="submit"],
+.post-content input[type="button"],
+.post-content button,
+.post-content .button {
+  display: block;
+  width: fit-content;
+  padding: 1rem;
+  border: 0;
+
+  box-sizing: border-box;
+  -webkit-appearance: normal;
+  appearance: normal;
+  transition: all ease-out 0.1s;
+  background: var(--color-primary);
+  font-weight: 600;
+  color: white;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+}
+
+.post-content input[type="reset"]:hover,
+.post-content input[type="submit"]:hover,
+.post-content input[type="button"]:hover,
+.post-content button:hover,
+.post-content .button:hover {
+  background: var(--color-primary-active);
+}
+
+.post-content input[type="reset"]:focus,
+.post-content input[type="submit"]:focus,
+.post-content input[type="button"]:focus,
+.post-content button:focus,
+.post-content .button:focus {
+  background: var(--color-primary-active);
+}

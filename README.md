@@ -309,7 +309,7 @@ different field.
 {% table data/books.yaml group_by="genre,author" group_summary_at="genre" %}
 ```
 
-This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via [pelican-osm](https://github.com/Lee-W/pelican-osm)'s `osm-map.js` — see [CSS / JS](#css--js) below.
+This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via this plugin's `tabular.js` — see [CSS / JS](#css--js) below.
 
 ### Derived group keys
 
@@ -346,4 +346,126 @@ Every `<th>` element has an `id` attribute derived from the column label (e.g., 
 
 ## CSS / JS
 
-The generated HTML uses the same class names as [pelican-osm](https://github.com/Lee-W/pelican-osm) (`osm-place-list`, `osm-group-*`) so the two plugins share CSS and the `osm-map.js` interactive sorting and group-toggle behaviour.
+The plugin copies its assets to `output/static/pelican_tabular/`. A shortcode
+with `view="..."` includes the optional view assets automatically, once per
+content item, using that site's `SITEURL`. No theme change is needed to opt in.
+
+Plain tables do not include database controls or new asset tags. When using the
+migrated OSM plugin, keep your existing `osm-map.js` / `osm-map.css` tags: its
+build step bundles the shared table core at those same URLs. For plain tables
+without OSM, include only the lightweight table assets in your theme:
+
+```html
+<link rel="stylesheet" href="{{ SITEURL }}/static/pelican_tabular/css/tabular-legacy.css">
+<script src="{{ SITEURL }}/static/pelican_tabular/js/tabular-core.js" defer></script>
+```
+
+The optional `tabular.js` bundle is assembled from `tabular-core.js` and
+`tabular-views.js`; `tabular.css` imports `tabular-legacy.css`. Deploy the whole
+generated directory. Plain tables retain the existing selectors, anchors,
+localized count settings and data format. **Starting with 0.6, tabular owns
+table behavior and styling.** Upgrade OSM together with tabular when both are
+used; pre-migration OSM versions contain their own table controller.
+
+Without JavaScript, table content and links remain readable. Interactive views show their details and hide inactive controls until initialization succeeds.
+
+## Interactive database views
+
+Define a named view in `pelicanconf.py` and select it in the shortcode:
+
+```python
+TABULAR_VIEWS = {
+    "works": {
+        "fields": ["title", "format", "genres", "rating"],
+        "field_labels": {"title": "作品", "format": "形式", "rating": "評分"},
+        "search_fields": ["title", "creator", "note"],
+        "sort_fields": ["title", "rating", "released_at"],
+        "field_types": {"rating": "number", "released_at": "date"},
+        "filters": {
+            "status": {
+                "options": [
+                    {"value": "ongoing", "label": "正在看", "tone": "amber"},
+                    {"value": "completed", "label": "已看完", "tone": "green"},
+                    {"value": "planned", "label": "想看", "tone": "blue"},
+                ]
+            },
+            "format": {"match": "any"},
+            "genres": {"match": "all"},
+            "released_at": {"control": "year_range"},
+        },
+        "display": {
+            "layout": "responsive",
+            "title_field": "title",
+            "meta_fields": ["format", "genres", "rating"],
+            "detail_fields": ["creator", "released_at", "status", "note"],
+        },
+        "presets": [{"label": "正在看", "filters": {"status": ["ongoing"]}}],
+        "query_sync": True,
+    }
+}
+```
+
+```text
+{% table data/works.yaml view="works" id="works" sort_by="rating" sort_order="desc" %}
+```
+
+The [complete example](examples/database/pelicanconf.py) includes rating descriptions, multiple date ranges, all reading statuses, links to reviews and a standalone theme. Its fictional [data](examples/database/content/data/works.yaml) needs no external service.
+
+| View option | Behavior |
+| --- | --- |
+| `fields`, `hidden`, `field_labels`, `date_format`, `sort_by`, `sort_order` | Same meanings as plain tables. Shortcode overrides view, then global defaults; lists replace and labels merge. |
+| `search_fields` | Text fields searched together, ignoring case and surrounding whitespace. Link values use their label; configured option labels are also searchable. Defaults to visible fields. |
+| `sort_fields` | Fields available for sorting, including fields absent from the visible table. |
+| `field_types` | Explicit `text`, `number` or `date` per field. Otherwise inferred from nonempty values. Dates accept ISO date/datetime, `YYYY-MM` or `YYYY`; missing/invalid values sort last in either direction. |
+| `filters` | Map of field to filter settings. `control` is `chips` (default) or `year_range`. |
+| `match` | Within a chip filter, `any` accepts any selected value; `all` requires all selected values in a list field. Different fields and search combine with AND. |
+| `options` | Optional ordered list of `{value, label, tone, description}`. Omit to derive options from data. Unlisted data values produce a warning. `null` represents a missing value. |
+| `tone` | `neutral`, `blue`, `green`, `amber`, `rose` or `violet`; used on value badges. |
+| `display` | `layout` is `responsive` (mobile cards) or `table`; `title_field` and `meta_fields` choose mobile content. `detail_fields` expand under the row. `legend_fields` show option descriptions. |
+| `presets` | Labeled shortcuts setting chip filters. Other filters remain active. Clicking the active preset clears only its fields. |
+| `query_sync` | Restore and update URL query parameters. Requires an explicit shortcode `id`. Defaults to false. |
+| `query_prefix` | Defaults to the table ID. Set to `""` for an unprefixed standalone database; prefixes must be unique within a page. |
+| `updated_at` | Optional author-supplied update date; not inferred from the build date. |
+| `messages` | Override UI text (search, filters, clear, count, empty, details, etc.). Built-in English, Traditional Chinese and Japanese follow `DEFAULT_LANG`. |
+
+Year ranges include both endpoints. Rows without a usable date do not match an active range; a list of dates matches if any date is in the range. Reversed ranges are rejected. Clearing filters also clears search, while keeping the sort order. Grouped tables sort within groups; collapsed rows remain part of the matched count. New interactive views currently reject `aggregate`; plain tables and OSM's existing aggregation remain supported.
+
+URLs use repeated parameters for multiple selections, for example `?works.status=ongoing&works.genres=科幻&works.genres=日常&works.released_at.from=2020`. Search uses `works.q`, sorting uses `works.sort` / `works.order`. Unrelated query parameters and fragments are preserved. Changes use `replaceState`, so each keystroke does not add a history entry; navigation restores the URL's state. Detail and filter-panel expansion are not stored in the URL.
+
+Only fields needed for display, details, search, filters and sorting are embedded in the page. **A field used for searching is public even if it is not a visible column.** Use `hidden` for presentation, not for protecting confidential data.
+
+Colors and spacing can be themed through scoped `.tabular-view` CSS variables such as `--tabular-bg`, `--tabular-text`, `--tabular-border` and `--tabular-accent`. The defaults use Attila's `--brand` and `--color-background-*` / `--color-content-*` tokens when present, with standalone fallbacks. System dark mode, `.theme-dark` / `.theme-light`, `.dark` and `data-theme` are supported. Component spacing follows its inherited font size. Mobile cards and the desktop table use the same rows, preserving links, selection and expanded details when resizing.
+
+Control labels and live counts are marked `data-pagefind-ignore`; table content
+and details remain available to the site's search index. Built-in messages use
+generic data terminology; the works example supplies its own reading vocabulary.
+
+## Using the shared core from another plugin
+
+The dependency direction is **pelican-osm → pelican-tabular**. The core never imports OSM or Leaflet.
+
+- `pelican.plugins.tabular.core.collapse_rows(rows, group_by, aggregate, union_fields=())` handles grouping/aggregation; consumers can request union semantics for fields such as OSM tags.
+- `pelican.plugins.tabular.rendering.render_table_body(...)` accepts prepared rows, a `render_row` callback and optional `group_suffix`/`group_key_value` callbacks (the latter defaults to `core.group_key_value`; pass your own for dotted-path or reference-aware group keys). It owns group boundaries, counts, anchors and headers; OSM retains its coordinate links, schema hints and image cells. Callbacks return trusted HTML and must escape their data.
+- `pelican.plugins.tabular.views.render_view(rows, config, table_id=..., lang=...)` renders a complete interactive view without shortcode initialization.
+- `pelican.plugins.tabular.assets.register_assets()` registers a shared, idempotent Pelican asset-copy hook. Consumer plugins call this from their own `register()` even when the tabular shortcode plugin is not enabled.
+- `pelican.plugins.tabular.assets.bundle_legacy_assets(script, stylesheet)` adds the shared engine and legacy CSS to a consumer's freshly copied output files. Call it after each copy so rebuilds do not append repeated bundles. OSM uses this to preserve its existing asset URLs without including database controls.
+- `window.Tabular.initTable(table, {formatCount})` attaches the shared controller idempotently. OSM supplies its localized count formatter and attaches its own lightbox handler. `window.Tabular.init()` initializes newly added views; the `tabular:ready` event handles asset loading order.
+
+## Development and example
+
+```sh
+uv sync --group dev
+uv run poe lint
+uv run poe cover
+npm ci
+npm test
+npm run example
+uv run python scripts/build_browser_fixtures.py
+npx playwright install chromium
+npm run test:browser
+```
+
+Serve `examples/database/output` and open `database.html` to explore the example. Browser tests cover light/dark layouts at 360, 768 and 1280 pixels and save screenshots under `test-results/`. Compatibility fixtures exercise unchanged OSM asset URLs, Attila article styles, manual theme selection and subsite paths. Integration fixtures include multiple views and legacy OSM markup; pass `--osm-source ../pelican-osm` to the fixture builder to test a live migrated OSM checkout, including its lightbox. The fixture builder also creates 1,000/5,000-row performance pages; browser tests report initialization and filtering timings.
+
+See the [implementation verification record](docs/verification.md) for results,
+measurement limits and the coordinated OSM release order.

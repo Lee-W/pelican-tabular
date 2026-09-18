@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import datetime
 import html
 import json
 import logging
@@ -14,12 +13,34 @@ from collections import defaultdict
 from io import StringIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import yaml
 from pelican.contents import Article, Page
 
 from pelican import signals
+
+from .assets import register_assets
+from .core import (
+    cell_value as _cell_value,
+)
+from .core import extract_year as _extract_year
+from .core import extract_years as _extract_years
+from .core import (
+    field_transform as _field_transform,
+)
+from .core import format_number as _format_number
+from .core import format_scalar as _format_scalar
+from .core import (
+    numeric_value as _numeric_value,
+)
+from .core import (
+    slugify as _slugify,
+)
+from .core import (
+    sort_key as _sort_key,
+)
+from .rendering import render_table_body
+from .views import mapping, render_view
 
 try:
     import markdown as _markdown
@@ -28,6 +49,19 @@ try:
 except ImportError:
     _markdown = None  # type: ignore[assignment]
     _HAS_MARKDOWN = False
+
+__all__ = [
+    "_aggregate_field",
+    "_cell_value",
+    "_collapse_rows",
+    "_extract_year",
+    "_extract_years",
+    "_field_transform",
+    "_format_scalar",
+    "_group_key_value",
+    "_slugify",
+    "register",
+]
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +118,8 @@ DEFAULT_REF_ROOTS = ["places"]
 
 def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
     return {
+        "views": pelican_settings.get("TABULAR_VIEWS", {}),
+        "lang": pelican_settings.get("DEFAULT_LANG", "en"),
         "shortcode": pelican_settings.get("TABULAR_SHORTCODE", DEFAULT_SHORTCODE),
         "fields": pelican_settings.get("TABULAR_FIELDS", []),
         "field_labels": pelican_settings.get("TABULAR_FIELD_LABELS", {}),
@@ -124,73 +160,9 @@ def _load_data_file(path: Path) -> list[dict[str, Any]]:
         raise TypeError(
             f"Expected a list of records in {path}, got {type(data).__name__}"
         )
+    if any(not isinstance(row, dict) for row in data):
+        raise TypeError(f"Expected records in {path}")
     return data
-
-
-# --- scalar helpers (ported from pelican-osm) --------------------------------
-
-
-def _slugify(value: str) -> str:
-    """Slug for an HTML id. Keeps letter chars (incl. CJK) and digits."""
-    s = re.sub(r"\s+", "-", str(value).strip())
-    out = [ch for ch in s if ch == "-" or ch.isalnum()]
-    return "".join(out).lower() or "group"
-
-
-def _format_scalar(value: Any, date_format: str = "") -> str:
-    if isinstance(value, (datetime.date, datetime.datetime)):
-        if date_format:
-            return value.strftime(date_format)
-        return value.isoformat()
-    return str(value)
-
-
-def _extract_year(value: Any) -> int | None:
-    if isinstance(value, datetime.datetime):
-        return value.year
-    if isinstance(value, datetime.date):
-        return value.year
-    if isinstance(value, int):
-        return value if 1000 <= value <= 9999 else None
-    if isinstance(value, str) and len(value) >= 4 and value[:4].isdigit():
-        return int(value[:4])
-    if isinstance(value, list):
-        for item in value:
-            year = _extract_year(item)
-            if year is not None:
-                return year
-    return None
-
-
-def _extract_years(value: Any) -> list[int]:
-    if isinstance(value, list):
-        years: list[int] = []
-        for item in value:
-            year = _extract_year(item)
-            if year is not None:
-                years.append(year)
-        return years
-    year = _extract_year(value)
-    return [year] if year is not None else []
-
-
-def _numeric_value(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _format_number(value: float) -> str:
-    if value == int(value):
-        return str(int(value))
-    return str(round(value, 2))
 
 
 def _get_nested(obj: Any, path: str) -> Any:
@@ -755,27 +727,19 @@ def _resolve_ref_rows(
 
 
 # --- field access (dotted paths, group/sort/link transforms) ----------------
-
-
-def _field_transform(token: str) -> tuple[str, str | None]:
-    """Split a ``field[:transform]`` token into ``(field_path, transform)``.
-
-    A bare ``"date"`` (or ``"venue.city"``) resolves the raw value at that
-    (possibly dotted) path; ``"date:year"`` derives a value from it instead.
-    Transforms: ``year`` (extract the year from a date/datetime/year-like
-    value via ``_extract_year``) and ``link`` (treat the resolved value as a
-    ``<field>_ref``-resolved record and build a ``{text, href}`` link dict
-    from it via ``ref_text_field``/``ref_href_template`` — see
-    ``_field_value``). Used by ``fields``, ``group_by``, ``sort_by``, and
-    ``group_summary_at``; ``field_path`` may itself contain dots (a nested
-    field), which ``_get_nested`` resolves — the transform's ``:`` and the
-    path's ``.`` never conflict because dots are resolved *within* the field
-    half, after this split.
-    """
-    if ":" in token:
-        field, _, transform = token.partition(":")
-        return field.strip(), transform.strip()
-    return token.strip(), None
+#
+# ``_field_transform`` (imported from ``.core``) splits a ``field[:transform]``
+# token into ``(field_path, transform)``: a bare ``"date"`` (or
+# ``"venue.city"``) resolves the raw value at that (possibly dotted) path;
+# ``"date:year"`` derives a value from it instead. Transforms: ``year``
+# (extract the year from a date/datetime/year-like value via
+# ``_extract_year``) and ``link`` (treat the resolved value as a
+# ``<field>_ref``-resolved record and build a ``{text, href}`` link dict from
+# it via ``ref_text_field``/``ref_href_template`` — see ``_field_value``).
+# Used by ``fields``, ``group_by``, ``sort_by``, and ``group_summary_at``;
+# ``field_path`` may itself contain dots (a nested field), which
+# ``_get_nested`` resolves — the transform's ``:`` and the path's ``.`` never
+# conflict because dots are resolved *within* the field half, after the split.
 
 
 class RefRenderContext:
@@ -895,8 +859,6 @@ def _collapse_rows(
             row[field] = _aggregate_field(op, field, row["_places"])
         result.append(row)
     return result
-
-
 # --- shortcode argument parsing ----------------------------------------------
 
 
@@ -924,60 +886,6 @@ def _detect_columns(rows: list[dict[str, Any]]) -> list[str]:
             if k not in _RESERVED:
                 seen[k] = None
     return list(seen)
-
-
-def _cell_value(
-    value: Any, *, date_format: str = "", aria_label: str | None = None
-) -> str:
-    """Render a cell value as HTML.
-
-    Supports plain scalars, ``{text, href}`` link dicts, and lists of either.
-    When ``aria_label`` is set, link elements get an ``aria-label`` so that
-    icon-only link text (e.g. an emoji) still has an accessible name.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, dict):
-        href = value.get("href") or value.get("url", "")
-        text = value.get("text") or value.get("label") or href
-        if href:
-            safe_href = quote(str(href), safe=":/?#[]@!$&'()*+,;=")
-            safe_text = html.escape(str(text))
-            aria = f' aria-label="{html.escape(str(aria_label))}"' if aria_label else ""
-            return f'<a href="{safe_href}"{aria}>{safe_text}</a>'
-        return html.escape(str(text))
-    if isinstance(value, list):
-        if len(value) > 1:
-            items = "".join(
-                "<li>"
-                + _cell_value(item, date_format=date_format, aria_label=aria_label)
-                + "</li>"
-                for item in value
-            )
-            return f'<ul style="margin:0;padding-left:1.2em">{items}</ul>'
-        return (
-            _cell_value(value[0], date_format=date_format, aria_label=aria_label)
-            if value
-            else ""
-        )
-    return html.escape(_format_scalar(value, date_format))
-
-
-def _sort_key(value: Any) -> tuple[int, Any]:
-    """Bucket a cell value by comparable type so sorting never raises on a
-    column with mixed types (e.g. some rows missing the field, others int
-    vs str). Buckets sort numbers, then dates, then everything else
-    (strings and None) so cross-type comparisons never happen.
-    """
-    if isinstance(value, bool):
-        return (0, int(value))
-    if isinstance(value, (int, float)):
-        return (0, value)
-    if isinstance(value, (datetime.date, datetime.datetime)):
-        return (1, value)
-    if value is None:
-        return (2, "")
-    return (2, str(value))
 
 
 def _render_table_html(
@@ -1054,8 +962,7 @@ def _render_table_html(
         used_ids.add(anchor)
         return anchor
 
-    # Use pelican-osm's place-list classes so osm-map.js handles interactive
-    # sorting and styling automatically.
+    # Retain legacy classes/anchors; tabular.js owns the shared interaction.
     parts: list[str] = ['<div class="osm-place-list-wrapper">']
     parts.append('<table class="osm-place-list">')
     parts.append("<thead><tr>")
@@ -1065,70 +972,34 @@ def _render_table_html(
     parts.append("</tr></thead>")
     parts.append("<tbody>")
 
-    if group_summary_at:
-        # Pre-compute place counts at every prefix depth so each header can
-        # display its own subtotal regardless of how many rows it spans.
-        prefix_counts: dict[tuple[str, ...], int] = defaultdict(int)
-        for row in rows:
-            n = len(row.get("_places") or [row])
-            key = tuple(_group_key_value(row, f, ref_ctx) for f in group_summary_at)
-            for d in range(len(key)):
-                prefix_counts[key[: d + 1]] += n
+    def render_row(row: dict[str, Any]) -> str:
+        weight = len(row.get("_places") or [row])
+        attrs = (
+            f' data-row-weight="{weight}"' if weight > 1 and group_summary_at else ""
+        )
+        cells = [f"<tr{attrs}>"]
+        for token, path, label in columns:
+            aria = label if path in aria_columns else None
+            cell = _cell_value(
+                _field_value(row, token, ref_ctx),
+                date_format=date_format,
+                aria_label=aria,
+            )
+            cells.append(f"<td>{cell}</td>")
+        cells.append("</tr>")
+        return "\n".join(cells)
 
-        prev_key: tuple[str, ...] = ()
-        for row in rows:
-            cur_key = tuple(_group_key_value(row, f, ref_ctx) for f in group_summary_at)
-            for depth, val in enumerate(cur_key):
-                prefix = cur_key[: depth + 1]
-                prev_prefix = (
-                    prev_key[: depth + 1] if len(prev_key) >= depth + 1 else None
-                )
-                if prefix == prev_prefix:
-                    continue
-                count_html = ""
-                if group_count_template:
-                    n_group = prefix_counts[prefix]
-                    count_html = (
-                        f'<span class="osm-group-count">'
-                        f"{group_count_template.replace('{n}', str(n_group))}"
-                        f"</span>"
-                    )
-                anchor_id = _anchor_id(
-                    "osm-group--" + "--".join(_slugify(v) for v in prefix)
-                )
-                parts.append(
-                    f'<tr class="osm-group-header osm-group-header--depth-{depth}"'
-                    f' data-depth="{depth}" id="{anchor_id}">'
-                    f'<td colspan="{col_count}">'
-                    f'<span class="osm-group-header-toggle" aria-hidden="true">▾</span>'
-                    '<strong class="osm-group-header-title">'
-                    f"{html.escape(str(val))}</strong>"
-                    f"{count_html}"
-                    f"</td></tr>"
-                )
-            prev_key = cur_key
-            parts.append("<tr>")
-            for token, path, label in columns:
-                aria = label if path in aria_columns else None
-                cell = _cell_value(
-                    _field_value(row, token, ref_ctx),
-                    date_format=date_format,
-                    aria_label=aria,
-                )
-                parts.append(f"<td>{cell}</td>")
-            parts.append("</tr>")
-    else:
-        for row in rows:
-            parts.append("<tr>")
-            for token, path, label in columns:
-                aria = label if path in aria_columns else None
-                cell = _cell_value(
-                    _field_value(row, token, ref_ctx),
-                    date_format=date_format,
-                    aria_label=aria,
-                )
-                parts.append(f"<td>{cell}</td>")
-            parts.append("</tr>")
+    body = render_table_body(
+        rows,
+        column_count=col_count,
+        render_row=render_row,
+        group_summary_at=group_summary_at,
+        group_count_template=group_count_template,
+        used_ids=used_ids,
+        group_key_value=lambda row, f: _group_key_value(row, f, ref_ctx),
+    )
+    if body:
+        parts.append(body)
 
     parts.append("</tbody></table>")
     parts.append("</div>")
@@ -1158,6 +1029,8 @@ def _replace_match(
     ref_cache: dict[Path, list[dict[str, Any]]],
     ref_index_cache: dict[str, Any],
     ref_errors: list[str],
+    view_ids: set[str] | None = None,
+    query_prefixes: set[str] | None = None,
 ) -> str:
     raw = match.group(1)
     try:
@@ -1223,6 +1096,63 @@ def _replace_match(
     date_format = kwargs.get("date_format") or settings["date_format"]
     aria_columns = set(_parse_csv_kwarg(kwargs.get("aria_columns", "")))
 
+    if "view" in kwargs:
+        try:
+            views = mapping(settings.get("views", {}), "TABULAR_VIEWS")
+            name = kwargs["view"]
+            if name not in views:
+                raise ValueError(f"unknown tabular view: {name}")
+            view = mapping(views[name], f"TABULAR_VIEWS.{name}")
+            config = {"fields": settings["fields"], "date_format": date_format, **view}
+            if not config.get("fields"):
+                config.pop("fields", None)
+            config["field_labels"] = {
+                **settings["field_labels"],
+                **mapping(view.get("field_labels", {}), "field_labels"),
+                **per_labels,
+            }
+            for key in ("fields", "hidden", "search_fields", "sort_fields"):
+                if key in kwargs:
+                    config[key] = _parse_csv_kwarg(kwargs[key])
+            for key in ("sort_by", "sort_order", "date_format"):
+                if key in kwargs:
+                    config[key] = kwargs[key]
+            if config.get("query_sync") and "id" not in kwargs:
+                raise ValueError("query_sync requires an explicit shortcode id")
+            table_id = kwargs.get("id", f"tabular-{len(view_ids or ()) + 1}")
+            if view_ids is not None and table_id in view_ids:
+                raise ValueError(f"duplicate table id: {table_id}")
+            prefix = config.get("query_prefix", table_id)
+            if (
+                config.get("query_sync")
+                and query_prefixes is not None
+                and prefix in query_prefixes
+            ):
+                raise ValueError(f"duplicate query prefix: {prefix!r}")
+            result = render_view(
+                rows,
+                config,
+                table_id=table_id,
+                lang=settings.get("lang", "en"),
+                group_by=group_by if "group_by" in kwargs else view.get("group_by", []),
+                group_summary_at=(
+                    group_summary_at
+                    if "group_summary_at" in kwargs
+                    else view.get("group_summary_at", [])
+                ),
+                aggregate=aggregate
+                if "aggregate" in kwargs
+                else view.get("aggregate", {}),
+            )
+            if view_ids is not None:
+                view_ids.add(table_id)
+            if config.get("query_sync") and query_prefixes is not None:
+                query_prefixes.add(prefix)
+            return result
+        except (ValueError, TypeError) as exc:
+            log.error("pelican-tabular: %s", exc)
+            return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
+
     return _render_table_html(
         rows,
         fields=fields,
@@ -1271,6 +1201,8 @@ def _process_content(
     # via ``_process_article`` always passes the persistent module-level
     # ``_ref_errors`` list explicitly so it accumulates across every page.
     resolved_ref_errors: list[str] = ref_errors if ref_errors is not None else []
+    view_ids: set[str] = set()
+    query_prefixes: set[str] = set()
     content._content = pattern.sub(
         lambda m: _replace_match(
             m,
@@ -1281,9 +1213,20 @@ def _process_content(
             ref_cache=resolved_ref_cache,
             ref_index_cache=resolved_ref_index_cache,
             ref_errors=resolved_ref_errors,
+            view_ids=view_ids,
+            query_prefixes=query_prefixes,
         ),
         content._content,
     )
+    if view_ids:
+        # Selecting a view opts into its assets; existing themes need no edits.
+        asset_url = html.escape(settings.get("siteurl", ""), quote=True)
+        content._content += (
+            f'<link rel="stylesheet" href="{asset_url}'
+            '/static/pelican_tabular/css/tabular.css">'
+            f'<script src="{asset_url}/static/pelican_tabular/js/tabular.js"'
+            " defer></script>"
+        )
 
 
 # --- Markdown shortcode protection -------------------------------------------
@@ -1424,6 +1367,7 @@ def _check_ref_errors(pelican: Any) -> None:
 
 
 def register() -> None:
+    register_assets()
     signals.initialized.connect(_init)
     signals.content_object_init.connect(_process_article)
     signals.finalized.connect(_check_ref_errors)

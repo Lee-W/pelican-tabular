@@ -1,0 +1,10 @@
+{
+  "name": "pelican-tabular-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/js/*.test.cjs",
+    "test:browser": "playwright test",
+    "example": "uv run pelican examples/database/content -s examples/database/pelicanconf.py -o examples/database/output"
+  },
+  "devDependencies": { "@playwright/test": "^1.58.0" }
+}

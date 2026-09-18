@@ -1,0 +1,66 @@
+# Fictional works for demonstrating the plugin; no external database required.
+- title: {text: 星河慢行, href: review.html}
+  format: anime
+  genres: [科幻, 日常]
+  creator: 林未央
+  publisher: 北光製作室
+  status: ongoing
+  rating: 5
+  released_at: 2026-07-01
+  note: 把太空旅行拍得像散步。每一集都留了一點安靜的餘地。
+- title: 雨停之前的書店
+  format: novel
+  genres: [日常, 奇幻]
+  creator: 夏目青
+  publisher: 南方書屋
+  status: completed
+  rating: 4
+  released_at: 2024-05-10
+  completed_at: 2026-02-15
+  note: 喜歡人物之間不急著說完的對話。
+- title: 從港口出發，沿著海岸線走到地圖盡頭以後，我們仍然記得那個夏天
+  format: film
+  genres: [冒險, 日常, 劇情]
+  creator: 周海平
+  publisher: 潮汐影像
+  status: planned
+  released_at: 2027-03-01
+  note: 想留到假日，一口氣看完。
+- title: 夜班電台
+  format: manga
+  genres: [推理, 劇情]
+  creator: 阿川
+  status: ongoing
+  rating: 4
+  released_at: 2025-10-01
+  note: 線索藏在每一次點歌裡。
+- title: 山與信
+  format: film
+  genres: [劇情]
+  creator: 王青禾
+  status: completed
+  rating: 5
+  released_at: 2023-12-01
+  completed_at: 2025-06-12
+  note: 很久沒有看到這麼喜歡的結尾。
+- title: 明天也在這裡
+  format: anime
+  genres: [日常, 喜劇]
+  creator: 若葉工作室
+  status: on_hold
+  rating: 3
+  released_at: 2022-04-01
+  note: 先暫停，等有空再接著看。
+- title: 第七座燈塔
+  format: novel
+  genres: [科幻, 推理]
+  creator: 陳白
+  status: planned
+  note: 還沒有確定出版日期。
+- title: 風的另一邊
+  format: manga
+  genres: [冒險]
+  creator: 李岸
+  status: dropped
+  released_at: 2020-08-01
+  note: 記下讀過的部分，就先到這裡。
