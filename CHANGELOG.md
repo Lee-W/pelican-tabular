@@ -1,3 +1,14 @@
+## 0.6.0 (2026-09-18)
+
+### Feat
+
+- resolve refs to whole records without overwriting fields
+- resolve cross-file references in data rows
+
+### Fix
+
+- drop a marker pin in the default ref href template
+
 ## 0.5.0 (2026-07-13)
 
 ### Feat
