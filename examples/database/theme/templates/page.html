@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ DEFAULT_LANG }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }} · {{ SITENAME }}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f5f4f0; color: #243044; }
+    main { max-width: 1100px; margin: auto; padding: 3rem 2rem; }
+    header { border-bottom: 1px solid #dce1e8; padding-bottom: 1.5rem; margin-bottom: 2rem; }
+    header a { text-decoration: none; color: inherit; font-size: .8rem; letter-spacing: .15em; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; margin: 1.5rem 0 .5rem; }
+    article > p:first-child { color: #647086; line-height: 1.8; }
+    .tabular-view { padding: 1.5rem; border-radius: 1rem; border: 1px solid var(--tabular-border); }
+    footer { color: #647086; font-size: .8rem; margin-top: 2rem; }
+    @media (max-width: 680px) { main { padding: 1.5rem .75rem; } .tabular-view { padding: 1rem .65rem; } }
+    @media (prefers-color-scheme: dark) { body { background: #111824; color: #e4e9f2; } header { border-color: #3b4960; } article > p:first-child, footer { color: #a9b7ce; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><a href="{{ SITEURL }}/database.html">{{ SITENAME }}</a><h1>{{ page.title }}</h1></header>
+    <article>{{ page.content }}</article>
+    <footer>故事還在繼續，清單也是。</footer>
+  </main>
+</body>
+</html>

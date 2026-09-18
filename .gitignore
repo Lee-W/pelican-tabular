@@ -80,3 +80,8 @@ poetry.toml
 .ruff_cache/
 pyrightconfig.json
 junit.xml
+
+node_modules/
+playwright-report/
+test-results/
+examples/database/output/
