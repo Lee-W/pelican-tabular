@@ -1,3 +1,9 @@
+## 0.7.0 (2026-09-19)
+
+### Feat
+
+- add optional searchable database views
+
 ## 0.6.0 (2026-09-18)
 
 ### Feat
