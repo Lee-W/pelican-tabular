@@ -1,3 +1,9 @@
+## 0.8.0 (2026-09-20)
+
+### Feat
+
+- improve database readability and responsive filter defaults
+
 ## 0.7.0 (2026-09-19)
 
 ### Feat
