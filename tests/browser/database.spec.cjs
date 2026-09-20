@@ -1,5 +1,9 @@
 const { test, expect } = require("@playwright/test");
 const rows = (page) => page.locator("#works .tabular-row:visible");
+const openFilters = async (page) => {
+  const toggle = page.locator("#works [data-filter-toggle]");
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+};
 const filter = (page, field, value) => page.locator(`#works fieldset[data-filter="${field}"] button[data-value="${value}"]`);
 
 test("loads without JavaScript errors and initializes only once", async ({ page }) => {
@@ -15,7 +19,7 @@ test("loads without JavaScript errors and initializes only once", async ({ page 
 test("URL status, compound filters, search, details and clearing", async ({ page }) => {
   await page.goto("/database.html?works.status=ongoing&utm_source=test#works");
   await expect(rows(page)).toHaveCount(2);
-  await page.locator("#works [data-filter-toggle]").click();
+  await openFilters(page);
   await filter(page, "genres", "科幻").click();
   await filter(page, "genres", "日常").click();
   await page.locator("#works [data-search]").fill("北光");
@@ -37,7 +41,7 @@ test("URL status, compound filters, search, details and clearing", async ({ page
 test("year ranges, null dates, reversed range and empty result", async ({ page }) => {
   await page.goto("/database.html?works.released_at.from=2025");
   await expect(rows(page)).toHaveCount(3);
-  await page.locator("#works [data-filter-toggle]").click();
+  await openFilters(page);
   const range = page.locator('#works fieldset[data-filter="released_at"]');
   await range.locator('[data-range="to"]').selectOption("2026");
   await expect(rows(page)).toHaveCount(2);
@@ -83,7 +87,7 @@ for (const width of [360, 768, 1280]) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto("/database.html");
       await expect(rows(page)).toHaveCount(8);
-      await page.locator("#works [data-filter-toggle]").click();
+      await openFilters(page);
       await rows(page).first().locator("[data-expand]").click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       if (width === 360) await expect(page.locator("#works thead")).toBeHidden();
@@ -93,10 +97,10 @@ for (const width of [360, 768, 1280]) {
   }
 }
 
-test("static page remains readable without JavaScript", async ({ browser }) => {
+test("static page remains readable without JavaScript", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
-  await page.goto("http://127.0.0.1:8765/database.html");
+  await page.goto(`${baseURL}/database.html`);
   await expect(rows(page)).toHaveCount(8);
   await expect(page.locator("#works .tabular-detail:visible")).toHaveCount(8);
   await expect(page.locator("#works .tabular-controls")).toBeHidden();

@@ -1568,9 +1568,7 @@ def test_resolve_ref_rows_strict_failure_does_not_raise_and_is_collected(
         source_file=source_file,
         errors=errors,
     )
-    assert result == [
-        {"title": "悟", "venue": "places/venues/taiwan.yaml#no-such-id"}
-    ]
+    assert result == [{"title": "悟", "venue": "places/venues/taiwan.yaml#no-such-id"}]
     assert ref_fields == frozenset({"venue"})
     assert len(errors) == 1
     assert "no-such-id" in errors[0]
@@ -1984,7 +1982,7 @@ def test_process_content_ref_href_template_override(tmp_path: Path) -> None:
 
     settings = _make_settings()
     content = _FakeContent(
-        "{% table data/concerts.yaml fields=\"venue:link\" "
+        '{% table data/concerts.yaml fields="venue:link" '
         'ref_href_template="https://maps.example/{lat},{lon}" %}'
     )
     _process_content(content, settings, content_path, {}, content_path=content_path)
@@ -2050,9 +2048,7 @@ def test_process_content_collects_errors_across_multiple_shortcodes(
     )
 
     settings = _make_settings()
-    content = _FakeContent(
-        "{% table data/a.yaml %}\n{% table data/b.yaml %}"
-    )
+    content = _FakeContent("{% table data/a.yaml %}\n{% table data/b.yaml %}")
     ref_errors: list[str] = []
     _process_content(
         content,

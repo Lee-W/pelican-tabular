@@ -188,6 +188,9 @@ def render_view(
     display = mapping(config.get("display", {}), "display")
     if display.get("layout", "responsive") not in ("responsive", "table"):
         raise ValueError("display.layout must be responsive or table")
+    filters_expanded = display.get("filters_expanded", "auto")
+    if not isinstance(filters_expanded, bool) and filters_expanded != "auto":
+        raise ValueError("display.filters_expanded must be auto, true or false")
     title = display.get("title_field", fields[0])
     if title not in fields:
         raise ValueError("display.title_field must be a visible field")
@@ -361,6 +364,7 @@ def render_view(
         "order": direction,
         "querySync": query_sync,
         "queryPrefix": query_prefix,
+        "filtersExpanded": filters_expanded,
         "words": words,
     }
 
@@ -389,7 +393,7 @@ def render_view(
         return '<span class="tabular-badges">' + "".join(badges) + "</span>"
 
     parts = [
-        f'<section class="tabular-view" id="{table_id}"'
+        f'<section class="tabular-view" id="{table_id}" lang="{esc(lang)}"'
         f' data-layout="{esc(display.get("layout", "responsive"))}">',
         '<div class="tabular-controls" data-pagefind-ignore hidden>',
         '<div class="tabular-search-bar">',
@@ -398,7 +402,7 @@ def render_view(
         f' placeholder="{esc(words["search"])}" autocomplete="off">',
         button(esc(words["clear_search"]), "data-clear-search"),
         "</div>",
-        '<div class="tabular-toolbar">',
+        '<div class="tabular-toolbar tabular-filter-actions">',
         button(
             f"{esc(words['filters'])} <span data-filter-count>0</span>",
             f'data-filter-toggle aria-expanded="false"'
@@ -434,7 +438,7 @@ def render_view(
         [
             "</div>",
             '<p class="tabular-error" role="alert" data-error hidden></p>',
-            '<div class="tabular-toolbar">',
+            '<div class="tabular-toolbar tabular-sort-controls">',
             f"<label>{esc(words['sort'])} "
             f'<select data-sort aria-label="{esc(words["sort"])}">',
             '<option value="">—</option>',
@@ -445,6 +449,7 @@ def render_view(
         [
             "</select></label>",
             button("↑", f'data-direction aria-label="{esc(words["direction"])}"'),
+            "</div>",
             '<div class="tabular-presets">',
         ]
     )
@@ -454,7 +459,7 @@ def render_view(
         )
     parts.extend(
         [
-            "</div></div></div>",
+            "</div></div>",
             '<div class="tabular-result-bar" data-pagefind-ignore>',
             '<p data-count role="status" aria-live="polite">'
             + esc(
@@ -470,7 +475,10 @@ def render_view(
             f"<p>{esc(words['updated'])} <time>{esc(config['updated_at'])}</time></p>"
         )
     parts.append("</div>")
-    for f in string_list(display.get("legend_fields", []), "legend_fields"):
+    legend_fields = string_list(display.get("legend_fields", []), "legend_fields")
+    if legend_fields:
+        parts.append('<div class="tabular-legends">')
+    for f in legend_fields:
         parts.append(
             f'<details class="tabular-legend" data-pagefind-ignore>'
             f"<summary>{label(f)} · "
@@ -481,6 +489,8 @@ def render_view(
                 f"<p>{esc(o['label'])} — {esc(o['description'] or o['label'])}</p>"
             )
         parts.append("</details>")
+    if legend_fields:
+        parts.append("</div>")
     parts.append(
         '<div class="tabular-table-scroll"><table class="tabular-table"><thead><tr>'
     )
@@ -503,7 +513,7 @@ def render_view(
                 else "tabular-desktop"
             )
             cells.append(
-                f'<td class="{css}" data-label="{label(f)}" '
+                f'<td class="{css}" data-field="{esc(f)}" data-label="{label(f)}" '
                 f'headers="{table_id}-col-{fields.index(f)}">'
             )
             if f == title and details:

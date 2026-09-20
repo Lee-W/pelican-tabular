@@ -1,5 +1,6 @@
 /* Reduced regression fixture from Lee-W/attila 0342e52 (MIT, see LICENSE).
-   Exact article table/form rules; root and brand tokens match the consuming sites. */
+   Exact article table/form rules; root and brand tokens match the consuming sites.
+   Details/admonition rules below also cover the current consuming theme. */
 html { font-size: 62.5%; color-scheme: light dark; }
 html.theme-light { color-scheme: light; }
 html.theme-dark { color-scheme: dark; }
@@ -12,10 +13,38 @@ html.theme-dark { color-scheme: dark; }
   --color-background-contrast: light-dark(#e1e3e6, #3b3d40);
   --color-content-main: light-dark(#222426, #e1e3e6);
   --color-content-secondary: light-dark(#73777d, #909499);
+  --radius-medium: 8px;
+  --ink-title: light-dark(#212220, #f5f4f1);
+  --rule: light-dark(#ececea, #33363a);
+  --tag-bg: light-dark(#f2f1ee, #2b2e31);
+  --adm-note: light-dark(#4a6c9b, #93b2da);
+  --adm-note-wash: light-dark(#f5f8fc, #1e242b);
 }
 body { font-family: sans-serif; font-size: 2rem; margin: 0; color: var(--color-content-main); background: var(--color-background-main); }
 body.site-travlog { --brand: #4a8a63; }
 .post-content { max-width: 80rem; margin: auto; padding: 2rem; }
+.post-content details {
+  margin: 0 0 22px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-medium);
+}
+.post-content summary {
+  padding: 14px 20px;
+  background: var(--tag-bg);
+  color: var(--ink-title);
+  font-weight: 700;
+}
+.post-content summary:hover { background: var(--rule); }
+.post-content details[open] > summary { border-bottom: 1px solid var(--rule); }
+.post-content details > *:not(summary):not(pre):not(.highlight) { padding-inline: 20px; }
+.post-content details[open] > *:not(summary):first-of-type { margin-top: 14px; }
+.post-content details > :last-child { margin-bottom: 14px; }
+.post-content details[class] {
+  --adm: var(--adm-note);
+  --adm-wash: var(--adm-note-wash);
+  border-inline-start: 3px solid var(--adm);
+}
+.post-content details[class] > summary { color: var(--adm); }
 .post-content table {
   width: 100%;
   margin: 0 0 4rem;

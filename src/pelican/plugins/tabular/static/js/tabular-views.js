@@ -10,8 +10,23 @@
     const search = root.querySelector("[data-search]");
     const sort = root.querySelector("[data-sort]");
     const direction = root.querySelector("[data-direction]");
+    const clear = root.querySelector("[data-clear]");
     const error = root.querySelector("[data-error]");
     const filterSets = [...root.querySelectorAll("fieldset[data-filter]")];
+    const filterToggle = root.querySelector("[data-filter-toggle]");
+    const filterPanel = root.querySelector(".tabular-filters");
+    const desktop = host.matchMedia("(min-width: 681px)");
+    let manuallyToggled = false;
+    const applyFilterDefault = () => {
+      if (manuallyToggled || !filterToggle || !filterPanel) return;
+      const preference = config.filtersExpanded ?? "auto";
+      const open = filterSets.length > 0 && (preference === "auto" ? desktop.matches : preference);
+      filterToggle.hidden = filterSets.length === 0;
+      filterPanel.hidden = !open;
+      filterToggle.setAttribute("aria-expanded", String(open));
+    };
+    applyFilterDefault();
+    desktop.addEventListener("change", applyFilterDefault);
 
     root.addEventListener("click", (event) => {
       const state = getState();
@@ -32,6 +47,7 @@
           expanded.has(id) ? expanded.delete(id) : expanded.add(id);
           update();
         } else if (button.hasAttribute("data-filter-toggle")) {
+          manuallyToggled = true;
           const panel = root.querySelector(".tabular-filters");
           panel.hidden = !panel.hidden;
           button.setAttribute("aria-expanded", String(!panel.hidden));
@@ -94,6 +110,7 @@
       });
       const filterCount = root.querySelector("[data-filter-count]");
       if (filterCount) filterCount.textContent = String(active);
+      if (clear) clear.hidden = active === 0;
       root.querySelectorAll("[data-preset]").forEach((button) => {
         const preset = config.presets[Number(button.dataset.preset)];
         const on = Object.entries(preset.filters).every(([f, v]) =>

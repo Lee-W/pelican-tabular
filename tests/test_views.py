@@ -64,6 +64,9 @@ def test_markup_and_json_are_safe_for_user_text() -> None:
         {"display": {"title_field": "missing"}},
         {"display": {"layout": "unknown"}},
         {"display": {"meta_fields": ["missing"]}},
+        {"display": {"filters_expanded": "open"}},
+        {"display": {"filters_expanded": 1}},
+        {"display": {"filters_expanded": None}},
         {"filters": {"status": {"control": "unknown"}}},
         {"filters": {"status": {"match": "unknown"}}},
         {"filters": {"q": {}}},
@@ -115,6 +118,41 @@ def test_empty_data_still_has_controls_and_table_headers() -> None:
     result = render_view([], {"fields": ["title"]}, table_id="empty")
     assert "<th" in result
     assert payload(result)["records"] == []
+
+
+@pytest.mark.parametrize("preference", ["auto", True, False])
+def test_filter_panel_preference_is_passed_to_the_controller(
+    preference: str | bool,
+) -> None:
+    result = render_view(
+        [{"name": "A", "team": "Research"}],
+        {
+            "fields": ["name", "team"],
+            "filters": {"team": {}},
+            "display": {"filters_expanded": preference},
+        },
+        table_id="people",
+    )
+    assert payload(result)["filtersExpanded"] == preference
+    # Controls stay hidden until JS loads, including when the preference is true.
+    assert 'class="tabular-controls" data-pagefind-ignore hidden' in result
+
+
+def test_view_defaults_and_field_hooks_do_not_depend_on_works_schema() -> None:
+    result = render_view(
+        [{"team": "Research", 'name"': "A", "secret": "hidden"}],
+        {
+            "fields": ["team", 'name"'],
+            "display": {"title_field": 'name"', "meta_fields": ["team"]},
+        },
+        table_id="people",
+        lang="ja",
+    )
+    assert payload(result)["filtersExpanded"] == "auto"
+    assert 'lang="ja"' in result
+    assert 'class="tabular-title" data-field="name&quot;"' in result
+    assert 'class="tabular-meta" data-field="team"' in result
+    assert 'data-field="secret"' not in result
 
 
 @pytest.mark.parametrize(
