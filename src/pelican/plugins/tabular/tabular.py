@@ -859,6 +859,8 @@ def _collapse_rows(
             row[field] = _aggregate_field(op, field, row["_places"])
         result.append(row)
     return result
+
+
 # --- shortcode argument parsing ----------------------------------------------
 
 

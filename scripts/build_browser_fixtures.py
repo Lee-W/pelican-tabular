@@ -102,6 +102,83 @@ views += render_view(
     '<rect width="80" height="80" fill="skyblue"/></svg>'
 )
 
+# Presentation must also work for non-catalog data and reordered columns.
+people = [
+    {
+        "team": "Research",
+        "employee": "A person with a long display name",
+        "level": 2,
+        "references": [
+            {"text": "Profile", "href": "/review.html"},
+            {"text": "A longer reference that can wrap", "href": "/review.html"},
+        ],
+    },
+    {"team": "Operations", "employee": "Another person", "level": None},
+]
+people_config = {
+    "fields": ["team", "references", "employee", "level"],
+    "field_labels": {
+        "team": "Department",
+        "references": "References",
+        "employee": "Employee name",
+        "level": "Level",
+    },
+    "filters": {
+        "team": {},
+        "level": {
+            "options": [
+                {"value": 2, "description": "Experienced"},
+                {"value": None, "description": "Not specified"},
+            ]
+        },
+    },
+    "sort_fields": ["employee"],
+    "display": {
+        "title_field": "employee",
+        "meta_fields": ["team", "references", "level"],
+        "legend_fields": ["level"],
+    },
+}
+presentation = []
+for view_id, preference in (("auto", "auto"), ("open", True), ("closed", False)):
+    presentation.append(
+        render_view(
+            people,
+            {
+                **people_config,
+                "display": {
+                    **people_config["display"],
+                    "filters_expanded": preference,
+                },
+            },
+            table_id=view_id,
+        )
+    )
+presentation.append(
+    render_view(
+        people,
+        {**people_config, "display": {**people_config["display"], "layout": "table"}},
+        table_id="table",
+        lang="ja",
+    )
+)
+presentation.append(
+    render_view(
+        [],
+        {"fields": ["name"], "display": {"filters_expanded": True}},
+        table_id="empty",
+    )
+)
+(out / "presentation.html").write_text(
+    head + '<link rel="stylesheet" href="/attila.css">'
+    '<body class="site-travlog"><main class="post-content">'
+    + "".join(presentation)
+    + '<ul class="outside-list" style="padding-left:1.2em"><li>Outside view</li></ul>'
+    '<details class="outside-details"><summary>Article note</summary>'
+    "<p>Theme styling stays here.</p></details>"
+    "</main></body></html>"
+)
+
 # Existing themes load only OSM URLs. A named view injects its own optional
 # assets through the real shortcode processor, including subsite prefixes.
 shutil.copyfile(ROOT / "tests/fixtures/attila/article.css", out / "attila.css")

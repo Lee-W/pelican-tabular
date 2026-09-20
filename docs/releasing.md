@@ -1,33 +1,72 @@
-# Coordinated tabular / OSM release
+# Releasing the database presentation update
 
-Both repositories bump versions and create tags automatically after a push to
-`main`. A version tag then triggers their PyPI publishing workflow. Treat merging
-either feature branch as the start of a release.
+This update builds on tabular 0.7.0 and OSM 0.16.1. It changes only tabular's
+optional database view, not the shared table engine, legacy stylesheet or OSM
+adapter. **Only tabular needs a new release for this change.** OSM 0.16.1 already
+accepts `pelican-tabular>=0.7.0`; upgrading its dependency also installs the new
+view assets. There is no temporary sibling source override to remove.
 
-1. Merge tabular first, retaining the feature commit's `feat:` classification.
-   Keep the development version at 0.5.0; Commitizen should create 0.6.0, its
-   changelog entry and tag. Wait for the PyPI workflow to finish successfully.
-2. Prepare OSM while it is still on its feature branch. Remove the temporary
-   `pelican-tabular` entry in `[tool.uv.sources]`, then run `uv lock`. Confirm the
-   lock selects the published tabular release from the registry, without a
-   sibling path. Update OSM's development instructions to match.
-3. Run OSM's `uv sync --locked --no-sources`, `uv run poe ci`, and its browser
-   integration job against the released tabular code. Commit the registry lock
-   and configuration changes before merging OSM.
-4. Merge OSM and wait for its automatic version bump, tag and PyPI publication.
-   The release guard `uv sync --locked --no-sources --no-dev` must pass. Never
-   merge the temporary local-source lock into a release expecting that check
-   to be bypassed.
-5. Upgrade the blogs after both packages are published, regenerate their
-   lockfiles and build each site. Ordinary pages retain their existing
-   shortcodes and assets. Adopt a database view separately by defining
-   `TABULAR_VIEWS` and adding an explicit `view` shortcode.
+## Package first
 
-The OSM feature branch's temporary sibling lock was created with tabular 0.6.0
-development metadata. The tabular feature branch now retains 0.5.0 for the
-automatic bump, so a normal OSM dependency sync against that checkout is an
-intermediate mismatch. Resolve it through step 2 after publication; do not
-lower OSM's minimum dependency to the released 0.5.0, which lacks the shared API.
+1. Run the Python, JavaScript and browser checks documented in the README,
+   including `scripts/build_browser_fixtures.py --osm-source ../pelican-osm`
+   when the OSM checkout is available. Run `uv build` to check packaging.
+2. Keep the development version at the latest released version. This repository
+   automatically bumps its version, updates the changelog and creates a tag
+   after a push to `main`; the tag triggers PyPI publication. The configurable
+   display behavior is a feature, so retain its feature classification when
+   preparing the release commit.
+3. Merge/push the reviewed change when ready to release. Wait for the PyPI
+   workflow to succeed before upgrading either blog. A local build or passing
+   tests do not mean the package has been published.
 
-Branch commits do not publish anything. Pushing or merging these branches and
-performing the release steps are separate from the initial local commits.
+If a future update also changes OSM, publish tabular first, then update OSM's
+minimum requirement and registry lock, test it against the published package,
+and publish OSM. Do not release a lockfile pointing to a local checkout.
+
+## Upgrade each blog
+
+From each blog repository, after publication:
+
+```sh
+uv lock --upgrade-package pelican-tabular --upgrade-package pelican-osm
+uv sync --locked
+uv run inv build --build-pagefind
+```
+
+Inspect the lockfile to confirm the intended published versions were selected.
+Ordinary tables and OSM lists retain their existing markup, behavior and styles;
+installing the new version does not opt those pages into database views.
+
+For entertainment-blog's ranking page, remove the temporary shared presentation
+overrides only after the new package is installed:
+
+- Remove the page script that initializes filter expansion, and its template
+  script tag. The view now defaults to desktop open / mobile closed itself.
+- Remove duplicate search/toolbar/filter/result/legend/button typography rules,
+  generic table spacing, mobile labels and review-list indentation fixes from
+  the page stylesheet. These now belong to `.tabular-view`.
+- Keep the page heading, navigation, author notes and Tier explanation styles,
+  page widths/margins, chosen column proportions, category/Tier badge styling
+  and the ranking's specific mobile arrangement. Use `td[data-field="..."]`
+  for field-specific rules instead of positional column selectors.
+- Keep field labels, categories, tiers, review links and search fields in the
+  blog's configuration/data. Dataset translation and bilingual subtitles are
+  outside this update.
+
+The default can be made explicit, or overridden per named view:
+
+```python
+"display": {
+    "layout": "responsive",
+    "filters_expanded": "auto",  # True / False for a fixed initial state
+    "title_field": "title",
+    "meta_fields": ["category", "tier", "reviews"],
+}
+```
+
+`auto` opens above 680px. After the reader manually toggles the panel, searching,
+sorting and resizing preserve that choice until reload. Check both language
+pages at desktop and mobile widths after removing the overrides, including
+manual toggles, search, sorting, review links and the no-JavaScript fallback.
+Keep main-blog's existing shortcodes unless explicitly adopting a named view.

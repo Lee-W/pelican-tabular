@@ -395,6 +395,7 @@ TABULAR_VIEWS = {
         },
         "display": {
             "layout": "responsive",
+            "filters_expanded": "auto",
             "title_field": "title",
             "meta_fields": ["format", "genres", "rating"],
             "detail_fields": ["creator", "released_at", "status", "note"],
@@ -421,7 +422,8 @@ The [complete example](examples/database/pelicanconf.py) includes rating descrip
 | `match` | Within a chip filter, `any` accepts any selected value; `all` requires all selected values in a list field. Different fields and search combine with AND. |
 | `options` | Optional ordered list of `{value, label, tone, description}`. Omit to derive options from data. Unlisted data values produce a warning. `null` represents a missing value. |
 | `tone` | `neutral`, `blue`, `green`, `amber`, `rose` or `violet`; used on value badges. |
-| `display` | `layout` is `responsive` (mobile cards) or `table`; `title_field` and `meta_fields` choose mobile content. `detail_fields` expand under the row. `legend_fields` show option descriptions. |
+| `display` | `layout` is `responsive` (compact mobile rows) or `table`; `title_field` and `meta_fields` choose mobile content. `detail_fields` expand under the row. `legend_fields` show option descriptions. |
+| `display.filters_expanded` | `"auto"` (default) initially opens filters above 680px and collapses them on smaller screens. `True` or `False` sets the initial state at every width. Once manually toggled, the reader's choice lasts until page reload, including across search, sorting and resizing. |
 | `presets` | Labeled shortcuts setting chip filters. Other filters remain active. Clicking the active preset clears only its fields. |
 | `query_sync` | Restore and update URL query parameters. Requires an explicit shortcode `id`. Defaults to false. |
 | `query_prefix` | Defaults to the table ID. Set to `""` for an unprefixed standalone database; prefixes must be unique within a page. |
@@ -434,7 +436,22 @@ URLs use repeated parameters for multiple selections, for example `?works.status
 
 Only fields needed for display, details, search, filters and sorting are embedded in the page. **A field used for searching is public even if it is not a visible column.** Use `hidden` for presentation, not for protecting confidential data.
 
-Colors and spacing can be themed through scoped `.tabular-view` CSS variables such as `--tabular-bg`, `--tabular-text`, `--tabular-border` and `--tabular-accent`. The defaults use Attila's `--brand` and `--color-background-*` / `--color-content-*` tokens when present, with standalone fallbacks. System dark mode, `.theme-dark` / `.theme-light`, `.dark` and `data-theme` are supported. Component spacing follows its inherited font size. Mobile cards and the desktop table use the same rows, preserving links, selection and expanded details when resizing.
+Colors can be themed through scoped `.tabular-view` CSS variables such as `--tabular-bg`, `--tabular-text`, `--tabular-border` and `--tabular-accent`. The defaults use Attila's `--brand` and `--color-background-*` / `--color-content-*` tokens when present, with standalone fallbacks. System dark mode, `.theme-dark` / `.theme-light`, `.dark` and `data-theme` are supported.
+
+The view inherits the theme's font family and defaults to 18px work/item titles,
+16px content and controls, and 15px labels. Override `--tabular-font-size`,
+`--tabular-control-size` and `--tabular-label-size` on a view to adjust them.
+Toolbar and filter controls have a minimum 44px height. Mobile rows show the configured
+title first, followed by bold field labels and values; link lists wrap without
+the indentation used by ordinary tables. Mobile and desktop share the same
+rows, preserving links, selections and expanded details when resizing.
+
+Cells expose `data-field` for site-specific column styling, for example
+`#works td[data-field="rating"]`. Page headers, introductions, category names,
+field widths and domain-specific badge choices remain the site's responsibility.
+These defaults apply only to named views; ordinary `{% table %}` output and OSM
+place lists keep their existing appearance and assets. See the
+[release and adoption notes](docs/releasing.md) when replacing site overrides.
 
 Control labels and live counts are marked `data-pagefind-ignore`; table content
 and details remain available to the site's search index. Built-in messages use

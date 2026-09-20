@@ -51,6 +51,7 @@ TABULAR_VIEWS = {
         "sort_order": "desc",
         "display": {
             "layout": "responsive",
+            "filters_expanded": "auto",
             "title_field": "title",
             "meta_fields": ["format", "genres", "creator", "rating"],
             "detail_fields": [
