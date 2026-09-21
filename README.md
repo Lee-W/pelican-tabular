@@ -148,20 +148,55 @@ all see the *entire* resolved `venue` record, not just `venue_ref`.
   record (see **Fail loud** below), or to point at a file outside
   `TABULAR_REF_ROOTS` entirely.
 
-In both forms, matching within a candidate file tries `id` first, then falls
-back to `name` — mirroring pelican-osm's own `#fragment` lookup, so there's
-one convention to learn across both plugins. The target file may be
-pelican-osm's locations-based shape (`locations: [...]`, shown above) or a
-bare top-level YAML list of dicts.
+Both forms prefer an `id` match and fall back to `name` only when no ID
+matches. Global lookup applies that preference across all indexed files;
+`<path>#<id>` applies it within the target file. OSM's own shortcodes accept
+either an ID or a name, but return all matches rather than prioritizing IDs.
+Use unique IDs to avoid ambiguity.
+
+The target file may use `locations: [...]` (shown above) or a bare top-level
+YAML list of dicts.
+
+**Requires tabular 0.8.1 or later:** ID-keyed mappings, inheritance of file
+defaults and exclusion of underscore-prefixed files from global discovery.
+These fixes are included in this source checkout; see the
+[release status](docs/releasing.md) before upgrading from PyPI. For example:
+
+```yaml
+defaults:
+  country: 日本
+toho-kawasaki:
+  name: TOHOシネマズ 川崎
+  city: 神奈川
+  lat: 35.5313838
+  lon: 139.7002316
+```
+
+Here `toho-kawasaki` becomes the record's `id` unless it has an explicit
+`id`. File defaults follow OSM's rules: top-level fields alongside
+`locations`, a `defaults` mapping alongside keyed records, or a standalone
+`defaults` entry applying to subsequent records in a bare list. Record values
+override defaults. When defaults contain a non-empty `tags` list and the
+record's tags are also a list, they are combined without duplicates, defaults
+first. Missing or falsy tags (including `[]`, `null`, `""`, `false` and `0`)
+retain the default tags. Non-empty, non-list tags use normal override
+behavior; without a non-empty default tag list, the record's tags remain
+unchanged. Nested `items` remain part of the referenced record.
+
+Global discovery skips underscore-prefixed YAML files such as `_schema.yaml`
+and `_common.yml`, matching OSM's metadata-file convention. An explicit
+`<path>#<id>` reference can still load such a file. Malformed data files
+continue to produce warnings; unresolved references still fail the build.
 
 #### Fail loud
 
 A ref that doesn't resolve — target file not found, id not found, or a
-global id that matches records in **more than one** file under
+global id that matches **more than one record**, even within one file under
 `TABULAR_REF_ROOTS` — **fails the build** by default
 (`TABULAR_REF_STRICT = True`). A ref pointing at nothing is data corruption,
 not something worth burying as a `log.warning` line in a 250-article build
-log.
+log. A path-qualified reference can disambiguate records in different files;
+duplicate IDs within one file should be corrected in the data.
 
 **This happens once, at the end of the build, not per-page.** Pelican wraps
 each page's processing in a try/except that logs an `ERROR` and *skips that
@@ -294,10 +329,12 @@ different field.
 | `TABULAR_COUNT_TEMPLATE` | `"{n} rows"` | Row-count string below the table; `{n}` is replaced with the count |
 | `TABULAR_GROUP_COUNT_TEMPLATE` | `"{n} rows"` | Count string inside group-header rows |
 | `TABULAR_DATE_FORMAT` | `""` | Global `strftime` pattern for date/datetime cells (empty = ISO format). Per-shortcode `date_format` overrides it |
+| `TABULAR_REF_SUFFIX` | `"_ref"` | Suffix identifying reference fields; removed from the resolved field name |
 | `TABULAR_REF_TEXT_FIELD` | `"name"` | Field used as link/plain-text source when resolving `<field>_ref` columns; see [Cross-file references](#cross-file-references-field_ref) |
 | `TABULAR_REF_HREF_TEMPLATE` | `"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}"` | `str.format` template(s) used by the `:link` transform; see [Fallback chain](#fallback-chain-mixed-data-quality-across-records) for the `\|`-separated multi-template form |
 | `TABULAR_REF_ROOTS` | `["places"]` | Directories (relative to Pelican's `PATH`) searched for a bare global-id `<field>_ref` |
 | `TABULAR_REF_STRICT` | `True` | If `True`, an unresolvable `<field>_ref` raises and fails the build; if `False`, it degrades to a `log.warning` and the raw ref string. See [Fail loud](#fail-loud) |
+| `TABULAR_VIEWS` | `{}` | Named configurations for optional [interactive database views](#interactive-database-views) |
 
 `TABULAR_COUNT_TEMPLATE` and `TABULAR_GROUP_COUNT_TEMPLATE` have built-in defaults for `zh` (`{n} 筆資料` / `{n} 筆`) and `ja` (`{n} 件`), derived from Pelican's `DEFAULT_LANG` setting.
 
@@ -309,7 +346,7 @@ different field.
 {% table data/books.yaml group_by="genre,author" group_summary_at="genre" %}
 ```
 
-This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via this plugin's `tabular.js` — see [CSS / JS](#css--js) below.
+This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via this plugin's shared table core — see [CSS / JS](#css--js) below.
 
 ### Derived group keys
 
@@ -363,9 +400,10 @@ without OSM, include only the lightweight table assets in your theme:
 The optional `tabular.js` bundle is assembled from `tabular-core.js` and
 `tabular-views.js`; `tabular.css` imports `tabular-legacy.css`. Deploy the whole
 generated directory. Plain tables retain the existing selectors, anchors,
-localized count settings and data format. **Starting with 0.6, tabular owns
-table behavior and styling.** Upgrade OSM together with tabular when both are
-used; pre-migration OSM versions contain their own table controller.
+localized count settings and data format. **Starting with tabular 0.7.0 and
+OSM 0.16.1, tabular owns shared table behavior and styling.** Use OSM 0.16.1
+or later when both plugins are installed; older OSM versions contain their
+own table controller.
 
 Without JavaScript, table content and links remain readable. Interactive views show their details and hide inactive controls until initialization succeeds.
 
@@ -457,6 +495,18 @@ Control labels and live counts are marked `data-pagefind-ignore`; table content
 and details remain available to the site's search index. Built-in messages use
 generic data terminology; the works example supplies its own reading vocabulary.
 
+### Current localization limits
+
+Built-in UI messages and plain-table count templates use `DEFAULT_LANG`,
+not an individual article's `Lang`. Language matching uses the primary
+subtag, so `zh-Hans` currently also selects Traditional Chinese. Labels,
+option text and translated record text must be supplied in the intended
+language; locale-to-text mappings are not supported yet.
+
+The [shared i18n design](docs/i18n-design.md) is a proposal, not an available
+configuration API. It covers per-component language, complete UI translation
+and optional data translation for both tabular and OSM.
+
 ## Using the shared core from another plugin
 
 The dependency direction is **pelican-osm → pelican-tabular**. The core never imports OSM or Leaflet.
@@ -466,7 +516,7 @@ The dependency direction is **pelican-osm → pelican-tabular**. The core never 
 - `pelican.plugins.tabular.views.render_view(rows, config, table_id=..., lang=...)` renders a complete interactive view without shortcode initialization.
 - `pelican.plugins.tabular.assets.register_assets()` registers a shared, idempotent Pelican asset-copy hook. Consumer plugins call this from their own `register()` even when the tabular shortcode plugin is not enabled.
 - `pelican.plugins.tabular.assets.bundle_legacy_assets(script, stylesheet)` adds the shared engine and legacy CSS to a consumer's freshly copied output files. Call it after each copy so rebuilds do not append repeated bundles. OSM uses this to preserve its existing asset URLs without including database controls.
-- `window.Tabular.initTable(table, {formatCount})` attaches the shared controller idempotently. OSM supplies its localized count formatter and attaches its own lightbox handler. `window.Tabular.init()` initializes newly added views; the `tabular:ready` event handles asset loading order.
+- `window.Tabular.initTable(table, {formatCount})` attaches the shared controller idempotently. OSM supplies its localized count formatter and attaches its own lightbox handler. `window.Tabular.init()` initializes tables and, when `tabular-views.js` is loaded, newly added views; the `tabular:ready` event handles asset loading order.
 
 ## Development and example
 

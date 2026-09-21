@@ -1,10 +1,14 @@
 **pelican-tabular 完整作品資料庫改動計畫**
 
-日期：2026-09-18。狀態：實作與本機驗證完成，尚未發布套件。
+原規劃日期：2026-09-18。狀態更新：2026-09-21。
+
+共用核心與互動檢視已隨 tabular 0.7.0／OSM 0.16.1 發布，介面改善已隨
+tabular 0.8.0 發布。本文保留當時的規劃與實作前盤點；下文的「目前」、
+提案語法及發布前提均屬歷史脈絡，不代表現行使用契約。
 
 已完成共用核心遷移、互動功能與桌面／手機呈現。以下保留原規劃與實作前盤點；實際設定以 [README](../../README.md) 與 [完整範例](../../examples/database/pelicanconf.py) 為準，驗證紀錄見 [驗證報告](../verification.md)。
 
-後續相容性修正已納入：資料庫 UI 僅由明確的 `view` shortcode 啟用，並自動引入資源；OSM 在既有資源 URL 組裝共用核心與舊表格樣式。一般表格不載入資料庫控制項。已補齊淺色變數、Attila 控制項與配色、子站及真實部落格回歸；兩站的內容、設定與 theme 無須為升級而修改。
+後續相容性修正已納入：資料庫 UI 僅由明確的 `view` shortcode 啟用，並自動引入資源；OSM 在既有資源 URL 組裝共用核心與舊表格樣式。一般表格不載入資料庫控制項。已補齊淺色變數、Attila 控制項與配色、子站及真實部落格回歸。只升級並保留一般表格，不需修改站台設定；entertainment-blog 後續另以內容、設定與頁面樣式改動，將作品排名頁升級為新檢視。
 
 結論：可以做，而且能沿用目前的 YAML／JSON／CSV 與 Pelican 靜態建置流程。新增可選的資料庫檢視，完整涵蓋搜尋、篩選、排序、桌面表格、手機卡片與詳情展開；作品類型、閱讀進度、評分等規則由站台設定，不寫死在通用 plugin 裡。
 
@@ -128,7 +132,7 @@ TABULAR_VIEWS = {
 {% table data/works.yaml view="works" id="works" sort_by="rating" sort_order="desc" %}
 ```
 
-上述介面已實作。設定優先順序為 shortcode > 具名檢視 > 現有全域預設；集合型設定要明訂合併或取代，初版建議列表整份取代、欄位標籤按 key 合併。
+上述為原始介面草案；現行設定以 README 為準。設定優先順序為 shortcode > 具名檢視 > 現有全域預設；列表整份取代、欄位標籤按 key 合併。
 
 未提供 `options` 時由資料推導可選值；提供時以設定控制順序及顯示名稱，資料中未列出的值應有明確警告。內部值與中文標籤分離，標籤變更不應讓既有分享網址失效。
 
@@ -223,11 +227,11 @@ TABULAR_VIEWS = {
 這項工作包含跨 repo 的共用核心遷移及完整作品資料庫的互動與視覺呈現。先確立 `pelican-osm → pelican-tabular` 並完成既有行為的相容驗證，再加入第一階段互動功能，最後完成第二階段的桌面／手機呈現與整體驗收。
 
 
-**實作結果與發布順序**
+**實作結果與目前發布狀態（2026-09-21 更新）**
 
-- `core.py`、`rendering.py`、`assets.py` 與 tabular 的 JS／CSS 提供共用能力；OSM 已宣告 `pelican-tabular>=0.6.0`，並移除重複的通用表格實作。
+- `core.py`、`rendering.py`、`assets.py` 與 tabular 的 JS／CSS 提供共用能力；OSM 0.16.1 已宣告 `pelican-tabular>=0.7.0`，並移除重複的通用表格實作。
 - `views.py` 提供完整互動檢視；桌面表格與手機卡片使用同一份 DOM，避免重複的 ID、焦點與展開狀態。
 - 新增完整的靜態作品資料庫範例、Python／JavaScript／Playwright 測試，以及瀏覽器 CI。
 - 參考頁的比較仍以取得的公開 HTML／JS 為依據；內建瀏覽器無法連線。完成版範例已透過獨立 Playwright 與截圖檢查深淺色及各螢幕尺寸。
-- OSM 目前使用 sibling checkout 的 uv source override，以便在 tabular 0.6.0 尚未發布前共同開發。正式發布應先發布 tabular，再移除 OSM 的暫時 `[tool.uv.sources]`、重建其 lockfile，最後發布 OSM。OSM 的一般 CI 在解除本機路徑前也需要 sibling checkout。
-- 實際部落格的資料與 theme 套用不在這次已確認的修改範圍；完整設定與可產站範例已可供套用。
+- 兩個套件均已移除暫時的本機 source override，OSM lockfile 使用 PyPI 套件。OSM 瀏覽器 CI 取用鎖定 tabular 版本的 fixture，執行時使用已安裝的套件。
+- 兩站已安裝 tabular 0.8.0；entertainment-blog 已另完成作品排名頁的套用。待發布的參照載入修正與未實作的 i18n 提案見 [發布流程](../releasing.md)。
