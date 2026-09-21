@@ -1193,6 +1193,76 @@ def test_load_ref_file_top_level_list(tmp_path: Path) -> None:
     assert items == [{"id": "a", "name": "A", "lat": 1.0, "lon": 2.0}]
 
 
+@pytest.mark.parametrize("shape", ["locations", "keyed", "list"])
+def test_ref_records_inherit_osm_defaults_and_keep_nested_items(
+    tmp_path: Path, shape: str
+) -> None:
+    defaults = {"country": "Japan", "city": "Tokyo", "tags": ["cinema", "visited"]}
+    record = {
+        "id": "cinema",
+        "name": "Cinema",
+        "city": "Kawasaki",
+        "tags": ["visited", "IMAX"],
+        "items": [{"hall": "Screen 4"}, {"hall": "Screen 5"}],
+    }
+    data: Any
+    if shape == "locations":
+        data = {**defaults, "locations": [record]}
+    elif shape == "keyed":
+        data = {"defaults": defaults, "cinema": record}
+    else:
+        data = [{"defaults": defaults}, record]
+    source = tmp_path / "cinemas.yaml"
+    source.write_text(yaml.safe_dump(data), encoding="utf-8")
+    before = source.read_text(encoding="utf-8")
+
+    assert _load_ref_file(source, {}) == [
+        {**record, "country": "Japan", "tags": ["cinema", "visited", "IMAX"]}
+    ]
+    assert source.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("global_ref", [False, True])
+@pytest.mark.parametrize("ref_id", ["cinema", "Cinema"])
+def test_keyed_records_resolve_by_id_or_name(
+    tmp_path: Path, global_ref: bool, ref_id: str
+) -> None:
+    places = tmp_path / "places"
+    places.mkdir()
+    (places / "cinemas.yml").write_text(
+        "cinema:\n  name: Cinema\n  lat: 1.0\n  lon: 2.0\n", encoding="utf-8"
+    )
+    if global_ref:
+        result = _resolve_global_ref(
+            ref_id,
+            content_path=tmp_path,
+            ref_roots=DEFAULT_REF_ROOTS,
+            cache={},
+            index_cache={},
+        )
+    else:
+        result = _resolve_path_ref(
+            f"places/cinemas.yml#{ref_id}", content_path=tmp_path, cache={}
+        )
+    assert result == {"id": "cinema", "name": "Cinema", "lat": 1.0, "lon": 2.0}
+
+
+def test_keyed_record_preserves_explicit_id(tmp_path: Path) -> None:
+    source = tmp_path / "cinemas.yaml"
+    source.write_text("key:\n  id: explicit\n  name: Cinema\n", encoding="utf-8")
+    assert _load_ref_file(source, {}) == [{"id": "explicit", "name": "Cinema"}]
+
+
+@pytest.mark.parametrize("tags", ["custom text", [{"name": "structured tag"}]])
+def test_ref_records_keep_generic_tags_without_file_defaults(
+    tmp_path: Path, tags: Any
+) -> None:
+    source = tmp_path / "records.yaml"
+    records = [{"id": "record", "tags": tags}]
+    source.write_text(yaml.safe_dump(records), encoding="utf-8")
+    assert _load_ref_file(source, {}) == records
+
+
 def test_load_ref_file_malformed_raises(tmp_path: Path) -> None:
     f = tmp_path / "venues.yaml"
     f.write_text("not: [valid, yaml: :", encoding="utf-8")
@@ -1406,6 +1476,47 @@ def test_build_global_ref_index_indexes_by_id_and_name(tmp_path: Path) -> None:
     by_id, by_name = _build_global_ref_index(content_path, DEFAULT_REF_ROOTS, {})
     assert [item for _, item in by_id["zepp-new-taipei"]] == [ZEPP_RECORD]
     assert [item for _, item in by_name["Zepp New Taipei"]] == [ZEPP_RECORD]
+
+
+def test_global_ref_discovery_skips_osm_metadata_before_reading(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    places = content_path / "places"
+    for name in ("_schema.yaml", "_common.yml", "venues/_private.yaml"):
+        (places / name).write_text("not: [valid, yaml: :", encoding="utf-8")
+    # Even valid records in a private file are not global reference candidates.
+    private = places / "_records.yml"
+    private.write_text("- id: private\n  name: Private\n", encoding="utf-8")
+    (places / "directory.yaml").mkdir()
+
+    by_id, by_name = _build_global_ref_index(content_path, DEFAULT_REF_ROOTS, {})
+
+    assert set(by_id) == {"zepp-new-taipei"}
+    assert set(by_name) == {"Zepp New Taipei"}
+    assert not caplog.records
+    assert _resolve_path_ref(
+        "places/_records.yml#private", content_path=content_path, cache={}
+    ) == {"id": "private", "name": "Private"}
+
+
+@pytest.mark.parametrize("bad_data", ["not: [valid, yaml: :", "record: invalid"])
+def test_global_ref_discovery_still_warns_for_invalid_data_files(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, bad_data: str
+) -> None:
+    content_path = _write_taiwan_venues(tmp_path)
+    broken = content_path / "places" / "broken.yaml"
+    broken.write_text(bad_data, encoding="utf-8")
+
+    by_id, _ = _build_global_ref_index(content_path, DEFAULT_REF_ROOTS, {})
+
+    assert set(by_id) == {"zepp-new-taipei"}
+    assert "skipping unreadable" in caplog.text
+    assert str(broken) in caplog.text
+    with pytest.raises(TabularRefError, match="failed to load"):
+        _resolve_path_ref(
+            "places/broken.yaml#record", content_path=content_path, cache={}
+        )
 
 
 def test_get_global_ref_index_builds_only_once(tmp_path: Path) -> None:
