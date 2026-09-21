@@ -367,13 +367,29 @@ class TabularRefError(Exception):
     """
 
 
+def _merge_ref_defaults(
+    defaults: dict[str, Any], item: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep OSM's per-record overrides and ordered tag union for references."""
+    result = {**defaults, **item}
+    default_tags = defaults.get("tags") or []
+    item_tags = item.get("tags") or []
+    if default_tags and isinstance(default_tags, list) and isinstance(item_tags, list):
+        tags = []
+        for tag in (*default_tags, *item_tags):
+            if tag not in tags:
+                tags.append(tag)
+        result["tags"] = tags
+    return result
+
+
 def _load_ref_file(
     path: Path, cache: dict[Path, list[dict[str, Any]]]
 ) -> list[dict[str, Any]]:
     """Load a ref-target YAML file, memoized in ``cache`` for this build.
 
-    Supports pelican-osm's locations-based shape (``{"locations": [...]}``)
-    and a bare top-level list of dicts.
+    Supports pelican-osm's locations list, ID-keyed records, and bare list.
+    File defaults are inherited; keyed records use the key as a missing ID.
     """
     resolved = path.resolve()
     if resolved in cache:
@@ -386,15 +402,41 @@ def _load_ref_file(
         items = data.get("locations") or []
         if not isinstance(items, list):
             raise TypeError(f"'locations' in {path} is not a list")
+        defaults = {key: value for key, value in data.items() if key != "locations"}
+        result = [
+            _merge_ref_defaults(defaults, item)
+            for item in items
+            if isinstance(item, dict)
+        ]
+    elif isinstance(data, dict):
+        defaults = data.get("defaults", {})
+        if not isinstance(defaults, dict):
+            raise TypeError(f"'defaults' in {path} is not a mapping")
+        result = []
+        for key, item in data.items():
+            if key == "defaults":
+                continue
+            if not isinstance(item, dict):
+                raise TypeError(f"Record {key!r} in {path} is not a mapping")
+            record = _merge_ref_defaults(defaults, item)
+            record.setdefault("id", key)
+            result.append(record)
     elif isinstance(data, list):
-        items = data
+        defaults = {}
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if set(item) == {"defaults"} and isinstance(item["defaults"], dict):
+                defaults = item["defaults"]
+            else:
+                result.append(_merge_ref_defaults(defaults, item))
     else:
         raise TypeError(
-            f"Expected a list or a 'locations:' mapping in {path}, "
+            f"Expected a list, a 'locations:' mapping, or ID-keyed records in {path}, "
             f"got {type(data).__name__}"
         )
 
-    result = [item for item in items if isinstance(item, dict)]
     cache[resolved] = result
     return result
 
@@ -511,7 +553,12 @@ def _iter_ref_root_files(content_path: Path, ref_roots: list[str]) -> list[Path]
         if not root_path.is_dir():
             continue
         for pattern in ("*.yaml", "*.yml"):
-            files.extend(sorted(root_path.rglob(pattern)))
+            # OSM reserves underscore-prefixed files for schemas/shared metadata.
+            files.extend(
+                path
+                for path in sorted(root_path.rglob(pattern))
+                if path.is_file() and not path.name.startswith("_")
+            )
     return files
 
 
