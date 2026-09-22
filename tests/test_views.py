@@ -57,10 +57,60 @@ def test_markup_and_json_are_safe_for_user_text() -> None:
     assert "href=" not in cell_value({"href": "javascript:alert(1)", "text": "link"})
 
 
+@pytest.mark.parametrize("detail", [False, True], ids=["column", "detail"])
+@pytest.mark.parametrize("links", [1, 2], ids=["link", "link-list"])
+def test_view_aria_columns_label_icon_links(detail: bool, links: int) -> None:
+    slides = [{"href": f"/slides/{i}", "text": "📊"} for i in range(links)]
+    result = render_view(
+        [{"title": "Talk", "slide": slides[0] if links == 1 else slides}],
+        {
+            "fields": ["title"] if detail else ["title", "slide"],
+            "display": {"detail_fields": ["slide"] if detail else []},
+            "aria_columns": ["slide"],
+            "field_labels": {"slide": {"ja": '資料 "スライド"'}},
+        },
+        table_id="talks",
+        lang="ja",
+    )
+    assert result.count('aria-label="資料 &quot;スライド&quot;"') == links
+
+
+@pytest.mark.parametrize(
+    ("override", "labelled"),
+    [
+        pytest.param("", ["slide"], id="view-default"),
+        pytest.param(' aria_columns="recording"', ["recording"], id="shortcode"),
+        pytest.param(' aria_columns=""', [], id="disable"),
+    ],
+)
+def test_shortcode_aria_columns_override_view(
+    tmp_path: Path, override: str, labelled: list[str]
+) -> None:
+    fields = ["slide", "recording"]
+    rows = [{field: {"text": "📊", "href": f"/{field}"} for field in fields}]
+    (tmp_path / "talks.json").write_text(json.dumps(rows))
+    settings = _resolve_settings(
+        {
+            "TABULAR_VIEWS": {"talks": {"fields": fields, "aria_columns": ["slide"]}},
+            "TABULAR_FIELD_LABELS": {"slide": "Global slide"},
+        }
+    )
+    content = MagicMock()
+    content._content = (
+        '{% table talks.json view="talks" '
+        'field_labels="slide:Slide,recording:Recording"' + override + " %}"
+    )
+    _process_content(content, settings, tmp_path, {})
+    for field in fields:
+        aria = f' aria-label="{field.title()}"' if field in labelled else ""
+        assert f'<a href="/{field}"{aria}>📊</a>' in content._content
+
+
 @pytest.mark.parametrize(
     "config",
     [
         {"fields": "title"},
+        {"aria_columns": "title"},
         {"display": {"title_field": "missing"}},
         {"display": {"layout": "unknown"}},
         {"display": {"meta_fields": ["missing"]}},
