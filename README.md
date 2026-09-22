@@ -495,22 +495,25 @@ Control labels and live counts are marked `data-pagefind-ignore`; table content
 and details remain available to the site's search index. Built-in messages use
 generic data terminology; the works example supplies its own reading vocabulary.
 
-### Current localization limits
+### Internationalization
 
-Built-in UI messages and plain-table count templates use `DEFAULT_LANG`,
-not an individual article's `Lang`. Language matching uses the primary
-subtag, so `zh-Hans` currently also selects Traditional Chinese. Labels,
-option text and translated record text must be supplied in the intended
-language; locale-to-text mappings are not supported yet.
+Components use shortcode/view `lang`, then the article/page's `Lang`, then
+`DEFAULT_LANG`. English, Traditional Chinese and Japanese UI catalogs are
+included. Matching preserves scripts: `zh-Hans` falls back to English instead
+of silently using Traditional Chinese.
 
-The [shared i18n design](docs/i18n-design.md) is a proposal, not an available
-configuration API. It covers per-component language, complete UI translation
-and optional data translation for both tabular and OSM.
+Labels, filter options and presets accept language-to-text mappings. Optional
+`TABULAR_TRANSLATIONS` and `TABULAR_REF_TRANSLATIONS` project explicitly
+allowlisted text fields without changing IDs or source data. Counts support
+CLDR plural forms, and existing count templates remain supported.
+
+See [configuration, fallback rules and migration examples](docs/i18n.md).
 
 ## Using the shared core from another plugin
 
 The dependency direction is **pelican-osm → pelican-tabular**. The core never imports OSM or Leaflet.
 
+- `pelican.plugins.tabular.i18n` provides `Catalog`, `component_locale`, `localized_text`, `project_record` and plural message helpers. Each package owns its JSON catalog.
 - `pelican.plugins.tabular.core.collapse_rows(rows, group_by, aggregate, union_fields=())` handles grouping/aggregation; consumers can request union semantics for fields such as OSM tags.
 - `pelican.plugins.tabular.rendering.render_table_body(...)` accepts prepared rows, a `render_row` callback and optional `group_suffix`/`group_key_value` callbacks (the latter defaults to `core.group_key_value`; pass your own for dotted-path or reference-aware group keys). It owns group boundaries, counts, anchors and headers; OSM retains its coordinate links, schema hints and image cells. Callbacks return trusted HTML and must escape their data.
 - `pelican.plugins.tabular.views.render_view(rows, config, table_id=..., lang=...)` renders a complete interactive view without shortcode initialization.

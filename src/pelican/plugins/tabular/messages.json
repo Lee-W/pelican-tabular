@@ -1,0 +1,80 @@
+{
+  "en": {
+    "search": "Search",
+    "filters": "Filters",
+    "clear": "Clear filters",
+    "clear_search": "Clear search",
+    "all": "Any",
+    "from": "From",
+    "to": "To",
+    "sort": "Sort by",
+    "direction": "Reverse sort direction",
+    "count": {
+      "plural": "total",
+      "forms": {
+        "one": "{shown} / {total} row",
+        "other": "{shown} / {total} rows"
+      }
+    },
+    "empty": "No matching entries.",
+    "details": "Details",
+    "range_error": "Start year must not exceed end year.",
+    "updated": "Last updated",
+    "legend": "Guide",
+    "group": "rows",
+    "group_count": {
+      "plural": "n",
+      "forms": {
+        "one": "{n} row",
+        "other": "{n} rows"
+      }
+    },
+    "row_count": {
+      "plural": "n",
+      "forms": {
+        "one": "{n} row",
+        "other": "{n} rows"
+      }
+    }
+  },
+  "ja": {
+    "search": "検索",
+    "filters": "絞り込み",
+    "clear": "条件をクリア",
+    "clear_search": "検索をクリア",
+    "all": "すべて",
+    "from": "開始",
+    "to": "終了",
+    "sort": "並び順",
+    "direction": "並び順を反転",
+    "count": "{total} 件中 {shown} 件",
+    "empty": "該当するデータはありません。",
+    "details": "詳細",
+    "range_error": "開始年は終了年以前にしてください。",
+    "updated": "最終更新",
+    "legend": "説明",
+    "group": "件",
+    "group_count": "{n} 件",
+    "row_count": "{n} 件"
+  },
+  "zh-Hant": {
+    "search": "搜尋",
+    "filters": "篩選",
+    "clear": "清除選取",
+    "clear_search": "清除搜尋",
+    "all": "不限",
+    "from": "起",
+    "to": "迄",
+    "sort": "排序",
+    "direction": "切換排序方向",
+    "count": "顯示 {shown} / {total} 筆",
+    "empty": "沒有符合條件的資料。",
+    "details": "詳細資料",
+    "range_error": "起始年份不能晚於結束年份。",
+    "updated": "最後更新",
+    "legend": "說明",
+    "group": "筆",
+    "group_count": "{n} 筆",
+    "row_count": "{n} 筆資料"
+  }
+}

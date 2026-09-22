@@ -269,3 +269,104 @@ print(
         ensure_ascii=False,
     )
 )
+
+# Same page, different component languages and one canonical filter value.
+i18n_data = [
+    {"title": "\uff21\uff22\uff23", "kind": "anime", "group": "A"},
+    {"title": "E\u0301", "kind": "book", "group": "A"},
+]
+i18n_config = {
+    "fields": ["title", "kind"],
+    "query_sync": True,
+    "field_labels": {"title": {"ja": "作品名", "en": "Title"}},
+    "filters": {
+        "kind": {
+            "options": [
+                {"value": "anime", "label": {"ja": "アニメ", "en": "Animation"}},
+                {"value": "book", "label": {"ja": "本", "en": "Book"}},
+            ]
+        }
+    },
+}
+i18n_views = "".join(
+    render_view(
+        i18n_data,
+        i18n_config,
+        table_id=tag,
+        lang=tag,
+        group_by=["group"],
+        group_summary_at=["group"],
+    )
+    for tag in ("en", "ja", "zh-Hans")
+)
+(out / "i18n.html").write_text(head + "<body>" + i18n_views + "</body></html>")
+
+if args.osm_source:
+    from pelican.plugins.osm import osm
+
+    if hasattr(osm, "CATALOG"):
+        shutil.copytree(
+            ROOT / "node_modules/leaflet/dist", out / "leaflet", dirs_exist_ok=True
+        )
+        source = out / "i18n-places"
+        source.mkdir(exist_ok=True)
+        data = [
+            {
+                "id": f"place-{i}",
+                "name": f"Source {i}",
+                "lat": 25 + i / 100,
+                "lon": 121 + i / 100,
+                "work": f"Layer {i}",
+                "images": ["/sample.svg"],
+                "translations": {"ja": {"name": f"場所 {i}"}},
+            }
+            for i in range(11)
+        ]
+        (source / "places.yaml").write_text(yaml.safe_dump(data, allow_unicode=True))
+        (source / "_schema.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "properties": {
+                        "work": {
+                            "x-osm-map-layer": True,
+                            "x-osm-list-i18n": {"title": {"ja": "作品", "en": "Work"}},
+                        }
+                    }
+                }
+            )
+        )
+        build = SimpleNamespace(
+            settings={
+                "PATH": str(out),
+                "OSM_PLACES_ROOT": str(source),
+                "OUTPUT_PATH": str(out),
+                "OSM_TRANSLATIONS": {"fields": ["name"], "source_lang": "en"},
+                "OSM_MAP_TILE": "/sample.svg",
+                "OSM_LIST_FIELDS": ["work"],
+            }
+        )
+        osm._init_resolver(build)
+        maps = "".join(
+            f'<section id="osm-{locale}">'
+            + osm._process_content(
+                f'{{% place places.yaml lang="{locale}" %}}'
+                + (
+                    f'{{% place_list places.yaml lang="{locale}" %}}'
+                    if locale == "ja"
+                    else ""
+                ),
+                build.settings["_OSM_CONTEXT"]["resolver"],
+                build.settings,
+            )
+            + "</section>"
+            for locale in ("en", "ja")
+        )
+        osm._export_geojson(build)
+        (out / "osm-i18n.html").write_text(
+            head + '<link rel="stylesheet" href="/leaflet/leaflet.css">'
+            '<script src="/leaflet/leaflet.js"></script>'
+            + extra
+            + "<body>"
+            + maps
+            + "</body></html>"
+        )

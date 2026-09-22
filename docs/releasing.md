@@ -1,6 +1,6 @@
 # Release and adoption notes
 
-## Current status (2026-09-21)
+## Release order for i18n
 
 - Tabular 0.7.0 introduced the shared table core and optional database views.
 - OSM 0.16.1 uses that core and requires `pelican-tabular>=0.7.0`.
@@ -8,16 +8,16 @@
   typography, mobile field labels and responsive filter expansion. Both blogs
   now use the published package; entertainment-blog has adopted the view on
   its existing ranking pages.
-- The reference-loader fix targets **0.8.1** and is **not released yet**.
-  It adds ID-keyed OSM reference data, file defaults and exclusion of private
-  YAML metadata from global reference discovery. See the
+- Tabular **0.8.1** added ID-keyed OSM reference data, file defaults and exclusion
+  of private YAML metadata from global reference discovery. See the
   [verification record](verification.md).
-- The [i18n design](i18n-design.md) is a proposal, not implemented functionality.
+- Component localization and optional data translations are described in the
+  [i18n usage guide](i18n.md).
 
-**Only tabular needs a functional release for the pending reference fix.**
-OSM 0.16.1's existing dependency range accepts it; the OSM documentation
-corrections do not require a new runtime API or dependency minimum.
-Neither library uses a temporary sibling source override.
+**Publish tabular before the corresponding OSM i18n update.** The OSM update
+uses the new `pelican.plugins.tabular.i18n` API. After tabular is published,
+raise OSM's minimum dependency, regenerate its registry lockfile and test
+against the published package before releasing OSM.
 
 ## Package first
 
@@ -28,12 +28,11 @@ Neither library uses a temporary sibling source override.
 2. Keep the development version at the latest released version. On a push to
    `main`, the repository's Commitizen workflow derives a version bump from
    conventional commits, updates the changelog and creates a tag; that tag
-   triggers PyPI publication. Classify the pending reference correction as
-   `fix`, not as another database-view feature. Documentation-only commits
-   do not by themselves imply a new package version.
+   triggers PyPI publication. Classify the i18n feature as `feat`.
+   Documentation-only commits do not by themselves imply a new package version.
    `uv run cz bump --get-next --yes` checks the next version without changing
-   files; it currently reports `0.8.1`. Preserve the conventional commits when
-   merging, or give the squash commit a `fix:` subject so the bump is detected.
+   files. Preserve the conventional commits when merging, or give the squash
+   commit a `feat:` subject so the feature bump is detected.
 3. Merge/push the reviewed change when ready to release. Wait for the PyPI
    workflow to succeed before upgrading either blog. A local build or passing
    tests do not mean the package has been published.
@@ -44,7 +43,7 @@ package, and publish OSM. Do not release a lockfile pointing to a local checkout
 
 ## Upgrade each blog after publication
 
-For the pending tabular-only fix, run from each blog repository:
+To upgrade tabular, run from each blog repository:
 
 ```sh
 uv lock --upgrade-package pelican-tabular
@@ -58,9 +57,8 @@ which published versions were selected. If the site's configuration or data
 now requires a newer feature/fix, raise its minimum dependency in
 `pyproject.toml` as well.
 
-Check build diagnostics, reference links and both language ranking pages.
-The earlier integration check used an isolated environment with the local
-source; normal blog builds still use the released 0.8.0 until upgraded.
+Check build diagnostics, reference links and each language's ranking pages.
+For i18n adoption, also verify translated labels/data, maps and photo lightboxes.
 
 ## Adopting the presentation changes from 0.8.0
 
@@ -77,7 +75,8 @@ the package does not opt those pages into database views.
   column proportions and dataset-specific badge/mobile styles. Use
   `td[data-field="..."]` for field rules instead of positional selectors.
 - Keep field labels, categories, tiers, review links and search fields in the
-  site's configuration/data. Data translation remains the site's responsibility.
+  site's configuration/data. Sites supply translations and explicitly enable
+  the [data translation settings](i18n.md#optional-record-translations).
 
 Within a named view, configure the initial filter state as follows:
 

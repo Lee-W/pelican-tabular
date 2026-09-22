@@ -5,9 +5,28 @@
   if (host.Tabular) return;
   const empty = () => Object.create(null);
   const year = (value) => /^\d{4}/.test(value) ? Number(value.slice(0, 4)) : null;
+  const normalizeSearch = (value) => String(value).normalize("NFKC").toLowerCase();
+  function intlLocale(locale, api = Intl.Collator) {
+    try { return api.supportedLocalesOf([locale])[0] || "en"; }
+    catch { return "en"; }
+  }
+  function formatMessage(message, values, locale = "en") {
+    if (typeof message === "object" && message !== null) {
+      const language = intlLocale(message.locale || locale, Intl.PluralRules);
+      const category = new Intl.PluralRules(language).select(values[message.plural]);
+      message = message.forms[category] ?? message.forms.other;
+    }
+    return String(message ?? "").replace(/{{|}}|\{([A-Za-z_][A-Za-z_0-9]*)\}/g,
+      (token, name) => token === "{{" ? "{" : token === "}}" ? "}" : String(values[name]));
+  }
+  function componentI18n(element) {
+    const root = element.closest("[data-i18n]");
+    if (root) return JSON.parse(root.dataset.i18n);
+    return { locale: element.closest("[lang]")?.lang || document.documentElement.lang || "en", words: {} };
+  }
 
   function matches(record, state, filters) {
-    if (!record.search.includes(state.q.trim().toLowerCase())) return false;
+    if (!normalizeSearch(record.search).includes(normalizeSearch(state.q.trim()))) return false;
     return Object.entries(filters).every(([field, spec]) => {
       const values = record.values[field] || [""];
       if (spec.control === "year_range") {
@@ -26,10 +45,10 @@
     });
   }
 
-  function compare(a, b, direction) {
+  function compare(a, b, direction, locale = "en") {
     if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
     const delta = typeof a === "number" && typeof b === "number"
-      ? a - b : String(a).localeCompare(String(b));
+      ? a - b : new Intl.Collator(intlLocale(locale)).compare(String(a), String(b));
     return direction === "desc" ? -delta : delta;
   }
 
@@ -106,6 +125,7 @@
     }
     const root = table.closest(".tabular-view, .osm-place-list-wrapper") || table.parentElement;
     const modern = root.classList.contains("tabular-view");
+    const component = componentI18n(root);
     const prefix = modern ? "tabular" : "osm";
     const body = table.tBodies[0];
     if (!body) return null;
@@ -113,7 +133,7 @@
     const config = options.config || {
       records: [], filters: { tags: { control: "chips", match: "any", values: [] } },
       sortFields: columns.map((_, i) => String(i)), presets: [], querySync: false,
-      words: {},
+      words: component.words, locale: component.locale,
     };
     const records = new Map(config.records.map((r) => [r.id, r]));
     const entries = [], groups = [], blocks = [];
@@ -180,7 +200,9 @@
         const label = groupCounts.get(g);
         if (label) {
           const n = filtered.reduce((sum, e) => sum + e.weight, 0);
-          if (label.hasAttribute("data-count-template")) {
+          if (label.hasAttribute("data-count-message")) {
+            label.textContent = formatMessage(JSON.parse(label.dataset.countMessage), { n }, config.locale);
+          } else if (label.hasAttribute("data-count-template")) {
             // This is a trusted server-side settings template; only n varies.
             const markup = label.dataset.countTemplate.replaceAll("{n}", String(n));
             if (label.innerHTML !== markup) label.innerHTML = markup;
@@ -193,7 +215,7 @@
         blocks.forEach((block) => {
           if (!Array.isArray(block)) { fragment.append(block.row); return; }
           const ordered = [...block].sort((a, b) => a.groupOrder - b.groupOrder ||
-            (state.sort ? compare(a.record.sort[state.sort], b.record.sort[state.sort], state.order) : 0) ||
+            (state.sort ? compare(a.record.sort[state.sort], b.record.sort[state.sort], state.order, config.locale) : 0) ||
             a.original - b.original);
           ordered.forEach((e) => { fragment.append(e.row); if (e.detail) fragment.append(e.detail); });
         });
@@ -202,8 +224,8 @@
       }
       if (count) {
         count.textContent = options.formatCount ? options.formatCount(shown.length)
-          : modern ? config.words.count.replace("{shown}", shown.length).replace("{total}", entries.length)
-            : `${shown.length} rows`;
+          : formatMessage(modern ? config.words.count : config.words.row_count || "{n} rows",
+              { n: shown.length, shown: shown.length, total: entries.length }, config.locale);
       }
       if (syncControls) syncControls(state, shown);
       columns.forEach((th, i) => {
@@ -304,7 +326,8 @@
     if (api.initViews) api.initViews(root);
     root.querySelectorAll(".osm-place-list").forEach((table) => initTable(table));
   }
-  const api = { init, initTable, matches, compare, readState, stateURL, initialState };
+  const api = { init, initTable, matches, compare, readState, stateURL, initialState,
+    formatMessage, componentI18n, normalizeSearch };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof document !== "undefined") {
     host.Tabular = api;

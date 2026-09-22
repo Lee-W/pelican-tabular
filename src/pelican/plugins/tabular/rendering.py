@@ -7,6 +7,7 @@ user data. Group labels are escaped here; count templates are trusted settings.
 from __future__ import annotations
 
 import html
+import json
 import re
 from collections import defaultdict
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from typing import Any
 
 from .core import group_key_value as _default_group_key_value
 from .core import slugify
+from .i18n import Message, format_message
 
 Row = dict[str, Any]
 
@@ -24,7 +26,9 @@ def render_table_body(
     column_count: int,
     render_row: Callable[[Row], str],
     group_summary_at: list[str],
-    group_count_template: str = "{n} rows",
+    group_count_template: Message = "{n} rows",
+    lang: str = "en",
+    text_count: bool = False,
     group_suffix: Callable[[Row, str], str] | None = None,
     group_key_value: Callable[[Row, str], Any] | None = None,
     css_prefix: str = "osm",
@@ -64,15 +68,27 @@ def render_table_body(
             ids.add(anchor)
             # Preserve trusted markup and literal numbers during live updates.
             template_attr = (
-                ' data-count-template="'
-                + html.escape(group_count_template, quote=True)
+                ' data-count-message="'
+                + html.escape(json.dumps(group_count_template), quote=True)
                 + '"'
-                if re.search(r"[<\d]", group_count_template)
-                else ""
+                if isinstance(group_count_template, dict) or text_count
+                else (
+                    ' data-count-template="'
+                    + html.escape(group_count_template, quote=True)
+                    + '"'
+                    if re.search(r"[<\d]", group_count_template)
+                    else ""
+                )
             )
             count = (
                 f'<span class="{css_prefix}-group-count"{template_attr}>'
-                + group_count_template.replace("{n}", str(counts[prefix]))
+                + (
+                    html.escape(
+                        format_message(group_count_template, lang, n=counts[prefix])
+                    )
+                    if isinstance(group_count_template, dict) or text_count
+                    else group_count_template.replace("{n}", str(counts[prefix]))
+                )
                 + "</span>"
                 if group_count_template
                 else ""

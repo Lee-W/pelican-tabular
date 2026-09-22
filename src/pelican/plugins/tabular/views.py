@@ -17,66 +17,20 @@ from .core import (
     format_scalar,
     group_key_value,
 )
+from .i18n import (
+    CATALOG,
+    component_locale,
+    format_message,
+    localized_text,
+    normalize_search,
+    project_record,
+    value_lang,
+)
+from .i18n import direction as text_direction
 from .rendering import render_table_body
 
 log = logging.getLogger(__name__)
 TONES = {"neutral", "blue", "green", "amber", "rose", "violet"}
-TRANSLATIONS = {
-    "en": {
-        "search": "Search",
-        "filters": "Filters",
-        "clear": "Clear filters",
-        "clear_search": "Clear search",
-        "all": "Any",
-        "from": "From",
-        "to": "To",
-        "sort": "Sort by",
-        "direction": "Reverse sort direction",
-        "count": "{shown} / {total} rows",
-        "empty": "No matching entries.",
-        "details": "Details",
-        "range_error": "Start year must not exceed end year.",
-        "updated": "Last updated",
-        "legend": "Guide",
-        "group": "rows",
-    },
-    "zh": {
-        "search": "搜尋",
-        "filters": "篩選",
-        "clear": "清除選取",
-        "clear_search": "清除搜尋",
-        "all": "不限",
-        "from": "起",
-        "to": "迄",
-        "sort": "排序",
-        "direction": "切換排序方向",
-        "count": "顯示 {shown} / {total} 筆",
-        "empty": "沒有符合條件的資料。",
-        "details": "詳細資料",
-        "range_error": "起始年份不能晚於結束年份。",
-        "updated": "最後更新",
-        "legend": "說明",
-        "group": "筆",
-    },
-    "ja": {
-        "search": "検索",
-        "filters": "絞り込み",
-        "clear": "条件をクリア",
-        "clear_search": "検索をクリア",
-        "all": "すべて",
-        "from": "開始",
-        "to": "終了",
-        "sort": "並び順",
-        "direction": "並び順を反転",
-        "count": "{total} 件中 {shown} 件",
-        "empty": "該当するデータはありません。",
-        "details": "詳細",
-        "range_error": "開始年は終了年以前にしてください。",
-        "updated": "最終更新",
-        "legend": "説明",
-        "group": "件",
-    },
-}
 
 
 def text(value: Any) -> str:
@@ -172,13 +126,24 @@ def render_view(
         )
     if any(not isinstance(row, dict) for row in rows):
         raise ValueError("table data must contain records")
-    words = {
-        **TRANSLATIONS.get(lang.lower().split("-")[0], TRANSLATIONS["en"]),
-        **mapping(config.get("messages", {}), "messages"),
+    lang = component_locale(config.get("lang"), lang)
+    words = CATALOG.resolve(lang, config.get("messages", {}))
+    labels = {
+        key: localized_text(value, lang, fallback=key, path=f"field_labels.{key}")
+        for key, value in mapping(
+            config.get("field_labels", {}), "field_labels"
+        ).items()
     }
-    if any(not isinstance(v, str) for v in words.values()):
-        raise ValueError("messages must contain strings")
-    labels = mapping(config.get("field_labels", {}), "field_labels")
+    translation = config.get("translations")
+    if translation is not None:
+        translation = mapping(translation, "translations")
+    if translation:
+        structural = set(config.get("filters", {})) | set(group_by or [])
+        if structural & set(translation.get("fields", [])):
+            raise ValueError(
+                "translations.fields: use option labels for filter/group values"
+            )
+    rows = [project_record(row, lang, translation) for row in rows]
     known = list(dict.fromkeys(k for row in rows for k in row if not k.startswith("_")))
     fields = string_list(config.get("fields", known), "fields")
     hidden = set(string_list(config.get("hidden", []), "hidden"))
@@ -266,9 +231,17 @@ def render_view(
             parsed.append(
                 {
                     "value": text(opt["value"]),
-                    "label": text(opt.get("label", opt["value"])) or "—",
+                    "label": localized_text(
+                        opt.get("label", text(opt["value"])),
+                        lang,
+                        path=f"filters.{field}.options.label",
+                    ),
                     "tone": tone,
-                    "description": text(opt.get("description")),
+                    "description": localized_text(
+                        opt.get("description", ""),
+                        lang,
+                        path=f"filters.{field}.options.description",
+                    ),
                 }
             )
         if len({o["value"] for o in parsed}) != len(parsed):
@@ -289,10 +262,9 @@ def render_view(
     presets = config.get("presets", [])
     if not isinstance(presets, list):
         raise ValueError("presets must be a list")
+    presets = [dict(mapping(p, "preset")) for p in presets]
     for preset in presets:
-        preset = mapping(preset, "preset")
-        if not isinstance(preset.get("label"), str):
-            raise ValueError("preset requires a label")
+        preset["label"] = localized_text(preset.get("label"), lang, path="preset.label")
         for f, selected in mapping(preset.get("filters"), "preset.filters").items():
             if (
                 f not in options
@@ -347,12 +319,13 @@ def render_view(
             {
                 "id": str(row["_tabular_index"]),
                 "values": public,
-                "search": " ".join(searchable).lower(),
+                "search": normalize_search(" ".join(searchable)),
                 "group": [text(group_key_value(row, f)) for f in group_by],
                 "sort": {f: sort_value(row.get(f), types[f]) for f in sort_fields},
             }
         )
     payload = {
+        "locale": lang,
         "records": records,
         "filters": filter_specs,
         "presets": [
@@ -394,6 +367,7 @@ def render_view(
 
     parts = [
         f'<section class="tabular-view" id="{table_id}" lang="{esc(lang)}"'
+        f' dir="{text_direction(lang)}"'
         f' data-layout="{esc(display.get("layout", "responsive"))}">',
         '<div class="tabular-controls" data-pagefind-ignore hidden>',
         '<div class="tabular-search-bar">',
@@ -463,9 +437,7 @@ def render_view(
             '<div class="tabular-result-bar" data-pagefind-ignore>',
             '<p data-count role="status" aria-live="polite">'
             + esc(
-                words["count"]
-                .replace("{shown}", str(len(rows)))
-                .replace("{total}", str(len(rows)))
+                format_message(words["count"], lang, shown=len(rows), total=len(rows))
             )
             + "</p>",
         ]
@@ -514,7 +486,7 @@ def render_view(
             )
             cells.append(
                 f'<td class="{css}" data-field="{esc(f)}" data-label="{label(f)}" '
-                f'headers="{table_id}-col-{fields.index(f)}">'
+                f'headers="{table_id}-col-{fields.index(f)}"{value_lang(row, f)}>'
             )
             if f == title and details:
                 cells.append(
@@ -537,7 +509,7 @@ def render_view(
             for f in details:
                 cells.append(
                     f"<div><dt>{label(f)}</dt>"
-                    f"<dd>{render_value(f, row.get(f))}</dd></div>"
+                    f"<dd{value_lang(row, f)}>{render_value(f, row.get(f))}</dd></div>"
                 )
             cells.append("</dl></td></tr>")
         return "".join(cells)
@@ -550,7 +522,13 @@ def render_view(
             group_summary_at=summaries,
             css_prefix="tabular",
             id_prefix=table_id + "-group-",
-            group_count_template="{n} " + words["group"],
+            group_count_template=(
+                "{n} " + str(words["group"])
+                if "group" in config.get("messages", {})
+                else words["group_count"]
+            ),
+            lang=lang,
+            text_count=True,
         )
     )
     parts.extend(
