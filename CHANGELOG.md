@@ -1,3 +1,9 @@
+## 0.9.0 (2026-09-22)
+
+### Feat
+
+- localize table components and translated record text
+
 ## 0.8.1 (2026-09-21)
 
 ### Fix
