@@ -453,6 +453,7 @@ The [complete example](examples/database/pelicanconf.py) includes rating descrip
 | View option | Behavior |
 | --- | --- |
 | `fields`, `hidden`, `field_labels`, `date_format`, `sort_by`, `sort_order` | Same meanings as plain tables. Shortcode overrides view, then global defaults; lists replace and labels merge. |
+| `aria_columns` | List of fields whose links use the localized field label as their accessible name, including links in detail rows. Shortcode `aria_columns="slide,recording"` replaces the view list; `aria_columns=""` disables it. |
 | `search_fields` | Text fields searched together, ignoring case and surrounding whitespace. Link values use their label; configured option labels are also searchable. Defaults to visible fields. |
 | `sort_fields` | Fields available for sorting, including fields absent from the visible table. |
 | `field_types` | Explicit `text`, `number` or `date` per field. Otherwise inferred from nonempty values. Dates accept ISO date/datetime, `YYYY-MM` or `YYYY`; missing/invalid values sort last in either direction. |
@@ -467,6 +468,7 @@ The [complete example](examples/database/pelicanconf.py) includes rating descrip
 | `query_prefix` | Defaults to the table ID. Set to `""` for an unprefixed standalone database; prefixes must be unique within a page. |
 | `updated_at` | Optional author-supplied update date; not inferred from the build date. |
 | `messages` | Override UI text (search, filters, clear, count, empty, details, etc.). Built-in English, Traditional Chinese and Japanese follow `DEFAULT_LANG`. |
+| `messages.count`, `messages.group_count` | Set either to `""` to hide the view's result count or per-group counts. Legacy global `TABULAR_COUNT_TEMPLATE` and `TABULAR_GROUP_COUNT_TEMPLATE` apply only to plain tables; they do not affect views. |
 
 Year ranges include both endpoints. Rows without a usable date do not match an active range; a list of dates matches if any date is in the range. Reversed ranges are rejected. Clearing filters also clears search, while keeping the sort order. Grouped tables sort within groups; collapsed rows remain part of the matched count. New interactive views currently reject `aggregate`; plain tables and OSM's existing aggregation remain supported.
 

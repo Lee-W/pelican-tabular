@@ -1227,7 +1227,13 @@ def _replace_match(
                 **mapping(view.get("field_labels", {}), "field_labels"),
                 **per_labels,
             }
-            for key in ("fields", "hidden", "search_fields", "sort_fields"):
+            for key in (
+                "fields",
+                "hidden",
+                "search_fields",
+                "sort_fields",
+                "aria_columns",
+            ):
                 if key in kwargs:
                     config[key] = _parse_csv_kwarg(kwargs[key])
             for key in ("sort_by", "sort_order", "date_format", "lang"):
@@ -1358,7 +1364,21 @@ def _process_content(
             log.error("pelican-tabular: %s", exc)
             return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
 
-    content._content = pattern.sub(replace, content._content)
+    def unwrap_shortcode_paragraph(m: re.Match[str]) -> str:
+        body = m.group(1)
+        if pattern.search(body) and not pattern.sub("", body).strip():
+            return body
+        return m.group(0)
+
+    # Markdown wraps stashed shortcodes in paragraphs. Both renderers return
+    # block elements, so remove wrappers containing only our shortcodes first.
+    source = re.sub(
+        r"<p>(.*?)</p>",
+        unwrap_shortcode_paragraph,
+        content._content,
+        flags=re.DOTALL,
+    )
+    content._content = pattern.sub(replace, source)
     if view_ids:
         # Selecting a view opts into its assets; existing themes need no edits.
         asset_url = html.escape(settings.get("siteurl", ""), quote=True)

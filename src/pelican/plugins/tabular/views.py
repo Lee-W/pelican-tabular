@@ -147,6 +147,7 @@ def render_view(
     known = list(dict.fromkeys(k for row in rows for k in row if not k.startswith("_")))
     fields = string_list(config.get("fields", known), "fields")
     hidden = set(string_list(config.get("hidden", []), "hidden"))
+    aria_columns = set(string_list(config.get("aria_columns", []), "aria_columns"))
     fields = [f for f in fields if f not in hidden]
     if not fields:
         raise ValueError("a view needs at least one visible field")
@@ -352,7 +353,16 @@ def render_view(
 
     def render_value(field: str, value: Any) -> str:
         if field not in options:
-            return cell_value(value, date_format=config.get("date_format", "")) or "—"
+            return (
+                cell_value(
+                    value,
+                    date_format=config.get("date_format", ""),
+                    aria_label=labels.get(field, field)
+                    if field in aria_columns
+                    else None,
+                )
+                or "—"
+            )
         badges = []
         for raw in values(value):
             opt = next(
