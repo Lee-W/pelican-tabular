@@ -1,3 +1,9 @@
+## 0.9.1 (2026-09-22)
+
+### Fix
+
+- preserve accessible links and block markup in table views
+
 ## 0.9.0 (2026-09-22)
 
 ### Feat
