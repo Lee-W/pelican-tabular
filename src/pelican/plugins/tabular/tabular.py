@@ -39,6 +39,18 @@ from .core import (
 from .core import (
     sort_key as _sort_key,
 )
+from .i18n import (
+    CATALOG,
+    Message,
+    component_attrs,
+    component_locale,
+    format_message,
+    localized_text,
+    other_template,
+    project_record,
+    validate_message,
+    value_lang,
+)
 from .rendering import render_table_body
 from .views import mapping, render_view
 
@@ -66,15 +78,13 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 DEFAULT_SHORTCODE = "table"
-DEFAULT_COUNT_TEMPLATE = "{n} rows"
-BUILTIN_COUNT_TEMPLATES: dict[str, str] = {
-    "zh": "{n} 筆資料",
-    "ja": "{n} 件",
+DEFAULT_COUNT_TEMPLATE = other_template(CATALOG.defaults["row_count"])
+BUILTIN_COUNT_TEMPLATES = {
+    lang: other_template(CATALOG.resolve(lang)["row_count"]) for lang in ("zh", "ja")
 }
-DEFAULT_GROUP_COUNT_TEMPLATE = "{n} rows"
-BUILTIN_GROUP_COUNT_TEMPLATES: dict[str, str] = {
-    "zh": "{n} 筆",
-    "ja": "{n} 件",
+DEFAULT_GROUP_COUNT_TEMPLATE = other_template(CATALOG.defaults["group_count"])
+BUILTIN_GROUP_COUNT_TEMPLATES = {
+    lang: other_template(CATALOG.resolve(lang)["group_count"]) for lang in ("zh", "ja")
 }
 
 # Internal field added by _collapse_rows; never shown as a data column.
@@ -87,21 +97,19 @@ _RESERVED = frozenset(["_places"])
 def _resolve_count_template(pelican_settings: dict[str, Any]) -> str:
     if "TABULAR_COUNT_TEMPLATE" in pelican_settings:
         return str(pelican_settings["TABULAR_COUNT_TEMPLATE"])
-    lang = pelican_settings.get("DEFAULT_LANG", "en").lower()
-    return BUILTIN_COUNT_TEMPLATES.get(
-        lang, BUILTIN_COUNT_TEMPLATES.get(lang.split("-")[0], DEFAULT_COUNT_TEMPLATE)
-    )
+    message = CATALOG.resolve(component_locale(pelican_settings.get("DEFAULT_LANG")))[
+        "row_count"
+    ]
+    return other_template(message)
 
 
 def _resolve_group_count_template(pelican_settings: dict[str, Any]) -> str:
     if "TABULAR_GROUP_COUNT_TEMPLATE" in pelican_settings:
         return str(pelican_settings["TABULAR_GROUP_COUNT_TEMPLATE"])
-    lang = pelican_settings.get("DEFAULT_LANG", "en").lower()
-    primary = lang.split("-")[0]
-    for key in (lang, primary):
-        if key in BUILTIN_GROUP_COUNT_TEMPLATES:
-            return BUILTIN_GROUP_COUNT_TEMPLATES[key]
-    return DEFAULT_GROUP_COUNT_TEMPLATE
+    message = CATALOG.resolve(component_locale(pelican_settings.get("DEFAULT_LANG")))[
+        "group_count"
+    ]
+    return other_template(message)
 
 
 DEFAULT_REF_TEXT_FIELD = "name"
@@ -119,6 +127,11 @@ DEFAULT_REF_ROOTS = ["places"]
 def _resolve_settings(pelican_settings: dict[str, Any]) -> dict[str, Any]:
     return {
         "views": pelican_settings.get("TABULAR_VIEWS", {}),
+        "translations": pelican_settings.get("TABULAR_TRANSLATIONS"),
+        "ref_translations": pelican_settings.get("TABULAR_REF_TRANSLATIONS"),
+        "messages": pelican_settings.get("TABULAR_MESSAGES", {}),
+        "count_override": pelican_settings.get("TABULAR_COUNT_TEMPLATE"),
+        "group_count_override": pelican_settings.get("TABULAR_GROUP_COUNT_TEMPLATE"),
         "lang": pelican_settings.get("DEFAULT_LANG", "en"),
         "shortcode": pelican_settings.get("TABULAR_SHORTCODE", DEFAULT_SHORTCODE),
         "fields": pelican_settings.get("TABULAR_FIELDS", []),
@@ -932,7 +945,7 @@ def _detect_columns(rows: list[dict[str, Any]]) -> list[str]:
     seen: dict[str, None] = {}
     for row in rows:
         for k in row:
-            if k not in _RESERVED:
+            if k not in _RESERVED and not k.startswith("_i18n_"):
                 seen[k] = None
     return list(seen)
 
@@ -945,11 +958,14 @@ def _render_table_html(
     hidden: set[str],
     sort_by: str | None,
     sort_order: str,
-    count_template: str,
+    count_template: Message,
     group_by: list[str],
     group_summary_at: list[str],
     aggregate: dict[str, str],
-    group_count_template: str,
+    group_count_template: Message,
+    lang: str | None = None,
+    count_is_text: bool = False,
+    group_count_is_text: bool = False,
     date_format: str = "",
     aria_columns: set[str] | None = None,
     ref_ctx: RefRenderContext | None = None,
@@ -998,7 +1014,11 @@ def _render_table_html(
         return ""
 
     col_count = len(columns)
-    count_text = count_template.replace("{n}", str(len(rows)))
+    count_text = (
+        html.escape(format_message(count_template, lang or "en", n=len(rows)))
+        if isinstance(count_template, dict) or count_is_text
+        else count_template.replace("{n}", str(len(rows)))
+    )
 
     used_ids: set[str] = set()
 
@@ -1012,7 +1032,8 @@ def _render_table_html(
         return anchor
 
     # Retain legacy classes/anchors; tabular.js owns the shared interaction.
-    parts: list[str] = ['<div class="osm-place-list-wrapper">']
+    attrs = component_attrs(lang, {"row_count": count_template}) if lang else ""
+    parts: list[str] = [f'<div class="osm-place-list-wrapper"{attrs}>']
     parts.append('<table class="osm-place-list">')
     parts.append("<thead><tr>")
     for _token, _path, label in columns:
@@ -1034,7 +1055,10 @@ def _render_table_html(
                 date_format=date_format,
                 aria_label=aria,
             )
-            cells.append(f"<td>{cell}</td>")
+            language = value_lang(row, path)
+            if path in ref_ctx.ref_fields and isinstance(row.get(path), dict):
+                language = value_lang(row[path], ref_ctx.text_field)
+            cells.append(f"<td{language}>{cell}</td>")
         cells.append("</tr>")
         return "\n".join(cells)
 
@@ -1044,6 +1068,8 @@ def _render_table_html(
         render_row=render_row,
         group_summary_at=group_summary_at,
         group_count_template=group_count_template,
+        lang=lang or "en",
+        text_count=group_count_is_text,
         used_ids=used_ids,
         group_key_value=lambda row, f: _group_key_value(row, f, ref_ctx),
     )
@@ -1088,6 +1114,29 @@ def _replace_match(
         log.error("pelican-tabular: %s", exc)
         return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
 
+    view_settings = mapping(settings.get("views", {}), "TABULAR_VIEWS").get(
+        kwargs.get("view", ""), {}
+    )
+    lang = component_locale(
+        kwargs.get("lang"),
+        view_settings.get("lang") if isinstance(view_settings, dict) else None,
+        settings.get("lang"),
+    )
+    words = CATALOG.resolve(lang, settings.get("messages", {}), path="TABULAR_MESSAGES")
+    for setting, message in (
+        ("count_override", "row_count"),
+        ("group_count_override", "group_count"),
+    ):
+        if settings.get(setting) is not None:
+            validate_message(
+                settings[setting],
+                {"n"},
+                "TABULAR_COUNT_TEMPLATE"
+                if setting == "count_override"
+                else "TABULAR_GROUP_COUNT_TEMPLATE",
+            )
+            words[message] = settings[setting]
+
     full_path = data_root / file_path
     if not full_path.exists():
         log.error("pelican-tabular: data file not found: %s", full_path)
@@ -1121,6 +1170,15 @@ def _replace_match(
         errors=ref_errors,
         ref_suffix=settings["ref_suffix"],
     )
+    for row in rows:
+        for field in ref_fields:
+            if isinstance(row.get(field), dict):
+                row[field] = project_record(
+                    row[field],
+                    lang,
+                    settings.get("ref_translations"),
+                    path="TABULAR_REF_TRANSLATIONS",
+                )
     ref_text_field = kwargs.get("ref_text_field") or settings["ref_text_field"]
     ref_href_template = kwargs.get("ref_href_template") or settings["ref_href_template"]
     ref_ctx = RefRenderContext(ref_fields, ref_text_field, ref_href_template)
@@ -1152,7 +1210,16 @@ def _replace_match(
             if name not in views:
                 raise ValueError(f"unknown tabular view: {name}")
             view = mapping(views[name], f"TABULAR_VIEWS.{name}")
-            config = {"fields": settings["fields"], "date_format": date_format, **view}
+            config = {
+                "fields": settings["fields"],
+                "date_format": date_format,
+                "translations": settings.get("translations"),
+                **view,
+            }
+            config["messages"] = {
+                **settings.get("messages", {}),
+                **mapping(view.get("messages", {}), "messages"),
+            }
             if not config.get("fields"):
                 config.pop("fields", None)
             config["field_labels"] = {
@@ -1163,7 +1230,7 @@ def _replace_match(
             for key in ("fields", "hidden", "search_fields", "sort_fields"):
                 if key in kwargs:
                     config[key] = _parse_csv_kwarg(kwargs[key])
-            for key in ("sort_by", "sort_order", "date_format"):
+            for key in ("sort_by", "sort_order", "date_format", "lang"):
                 if key in kwargs:
                     config[key] = kwargs[key]
             if config.get("query_sync") and "id" not in kwargs:
@@ -1182,7 +1249,7 @@ def _replace_match(
                 rows,
                 config,
                 table_id=table_id,
-                lang=settings.get("lang", "en"),
+                lang=lang,
                 group_by=group_by if "group_by" in kwargs else view.get("group_by", []),
                 group_summary_at=(
                     group_summary_at
@@ -1199,21 +1266,39 @@ def _replace_match(
                 query_prefixes.add(prefix)
             return result
         except (ValueError, TypeError) as exc:
+            ref_errors.append(f"{full_path} view={kwargs['view']}: {exc}")
             log.error("pelican-tabular: %s", exc)
             return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
 
+    translation = settings.get("translations")
+    if translation is not None:
+        translation = mapping(translation, "TABULAR_TRANSLATIONS")
+    if translation and set(group_by) & set(translation.get("fields", [])):
+        raise ValueError(
+            "TABULAR_TRANSLATIONS.fields: group fields must stay canonical"
+        )
+    rows = [
+        project_record(row, lang, translation, path="TABULAR_TRANSLATIONS")
+        for row in rows
+    ]
     return _render_table_html(
         rows,
         fields=fields,
-        field_labels=merged_labels,
+        field_labels={
+            k: localized_text(v, lang, fallback=k, path=f"TABULAR_FIELD_LABELS.{k}")
+            for k, v in merged_labels.items()
+        },
         hidden=hidden,
         sort_by=sort_by,
         sort_order=sort_order,
-        count_template=settings["count_template"],
+        count_template=words["row_count"],
         group_by=group_by,
         group_summary_at=group_summary_at,
         aggregate=aggregate,
-        group_count_template=settings["group_count_template"],
+        group_count_template=words["group_count"],
+        lang=lang,
+        count_is_text=settings.get("count_override") is None,
+        group_count_is_text=settings.get("group_count_override") is None,
         date_format=date_format,
         aria_columns=aria_columns,
         ref_ctx=ref_ctx,
@@ -1232,6 +1317,7 @@ def _process_content(
 ) -> None:
     if not content._content:
         return
+    settings = {**settings, "lang": vars(content).get("lang") or settings.get("lang")}
     pattern = _make_pattern(settings["shortcode"])
     if not pattern.search(content._content):
         return
@@ -1252,21 +1338,27 @@ def _process_content(
     resolved_ref_errors: list[str] = ref_errors if ref_errors is not None else []
     view_ids: set[str] = set()
     query_prefixes: set[str] = set()
-    content._content = pattern.sub(
-        lambda m: _replace_match(
-            m,
-            data_root=data_root,
-            content_path=resolved_content_path,
-            settings=settings,
-            article_url_map=article_url_map,
-            ref_cache=resolved_ref_cache,
-            ref_index_cache=resolved_ref_index_cache,
-            ref_errors=resolved_ref_errors,
-            view_ids=view_ids,
-            query_prefixes=query_prefixes,
-        ),
-        content._content,
-    )
+
+    def replace(m: re.Match[str]) -> str:
+        try:
+            return _replace_match(
+                m,
+                data_root=data_root,
+                content_path=resolved_content_path,
+                settings=settings,
+                article_url_map=article_url_map,
+                ref_cache=resolved_ref_cache,
+                ref_index_cache=resolved_ref_index_cache,
+                ref_errors=resolved_ref_errors,
+                view_ids=view_ids,
+                query_prefixes=query_prefixes,
+            )
+        except (ValueError, TypeError) as exc:
+            resolved_ref_errors.append(str(exc))
+            log.error("pelican-tabular: %s", exc)
+            return f'<p class="tabular-error">{html.escape(str(exc))}</p>'
+
+    content._content = pattern.sub(replace, content._content)
     if view_ids:
         # Selecting a view opts into its assets; existing themes need no edits.
         asset_url = html.escape(settings.get("siteurl", ""), quote=True)
@@ -1363,11 +1455,30 @@ def _init(pelican: Any) -> None:
     else:
         _data_root = content_path
 
+    pelican.settings["_TABULAR_CONTEXT"] = {
+        "settings": _settings,
+        "data_root": _data_root,
+        "content_path": _content_path,
+        "article_url_map": _article_url_map,
+        "ref_cache": _ref_cache,
+        "ref_index_cache": _ref_index_cache,
+        "ref_errors": _ref_errors,
+    }
     _register_markdown_extension(pelican)
 
 
 def _process_article(content: Article | Page) -> None:
-    if _settings is None or _data_root is None or _content_path is None:
+    content_settings = getattr(content, "settings", {})
+    context = (
+        content_settings.get("_TABULAR_CONTEXT", {})
+        if isinstance(content_settings, dict)
+        else {}
+    )
+    settings = context.get("settings", _settings)
+    data_root = context.get("data_root", _data_root)
+    content_path = context.get("content_path", _content_path)
+    url_map = context.get("article_url_map", _article_url_map)
+    if settings is None or data_root is None or content_path is None:
         return
 
     # Build URL map incrementally so shortcodes can resolve {filename} references
@@ -1375,23 +1486,23 @@ def _process_article(content: Article | Page) -> None:
     src = getattr(content, "source_path", None)
     url = getattr(content, "url", None)
     if src and url:
-        abs_url = _settings["siteurl"] + "/" + url.lstrip("/")
-        _article_url_map[src] = abs_url
+        abs_url = settings["siteurl"] + "/" + url.lstrip("/")
+        url_map[src] = abs_url
         try:
-            rel = Path(src).relative_to(_content_path)
-            _article_url_map[str(rel)] = abs_url
+            rel = Path(src).relative_to(content_path)
+            url_map[str(rel)] = abs_url
         except ValueError:
             pass
 
     _process_content(
         content,
-        _settings,
-        _data_root,
-        _article_url_map,
-        content_path=_content_path,
-        ref_cache=_ref_cache,
-        ref_index_cache=_ref_index_cache,
-        ref_errors=_ref_errors,
+        settings,
+        data_root,
+        url_map,
+        content_path=content_path,
+        ref_cache=context.get("ref_cache", _ref_cache),
+        ref_index_cache=context.get("ref_index_cache", _ref_index_cache),
+        ref_errors=context.get("ref_errors", _ref_errors),
     )
 
 
@@ -1405,13 +1516,16 @@ def _check_ref_errors(pelican: Any) -> None:
     sys.exit(...)`` and turns into a non-zero process exit. See the module
     comment above ``DEFAULT_REF_SUFFIX``.
     """
-    del pelican  # unused; signature matches what blinker's Signal.send passes
-    if not _ref_errors:
+    errors = (
+        getattr(pelican, "settings", {})
+        .get("_TABULAR_CONTEXT", {})
+        .get("ref_errors", _ref_errors)
+    )
+    if not errors:
         return
-    joined = "\n".join(f"  - {message}" for message in _ref_errors)
+    joined = "\n".join(f"  - {message}" for message in errors)
     raise TabularRefError(
-        f"pelican-tabular: {len(_ref_errors)} ref error(s); failing the build:\n"
-        f"{joined}"
+        f"pelican-tabular: {len(errors)} ref error(s); failing the build:\n{joined}"
     )
 
 
