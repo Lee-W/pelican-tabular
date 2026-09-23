@@ -150,6 +150,51 @@ def test_projection_does_not_mutate_or_publish_translation_payload() -> None:
         project_record({"score": 10}, "ja", {"fields": ["score"]})
 
 
+@pytest.mark.parametrize(
+    ("record", "locale", "expected"),
+    [
+        pytest.param({}, "ja", None, id="absent"),
+        pytest.param(
+            {"translations": {"ja": {"note": "注記"}}},
+            "en",
+            None,
+            id="unmatched-translation",
+        ),
+        pytest.param(
+            {"translations": {"ja": {"note": "注記"}}},
+            "ja-JP",
+            "注記",
+            id="compatible-translation",
+        ),
+        pytest.param(
+            {"translations": {"ja": {"note": ""}}},
+            "ja",
+            "",
+            id="empty-translation",
+        ),
+        pytest.param({"note_ja": "注記"}, "ja-JP", "注記", id="compatible-alias"),
+        pytest.param({"note_ja": ""}, "ja", None, id="empty-alias"),
+        pytest.param({"note": ""}, "en", "", id="empty-source"),
+    ],
+)
+def test_projection_preserves_absent_fields(
+    record: dict[str, Any], locale: str, expected: str | None
+) -> None:
+    original = deepcopy(record)
+    projected = project_record(
+        record,
+        locale,
+        {"fields": ["note"], "aliases": {"ja": {"note": "note_ja"}}},
+    )
+    if expected is None:
+        assert "note" not in projected
+        assert "note" not in projected["_i18n_langs"]
+        assert "note" not in projected["_i18n_source"]
+    else:
+        assert projected["note"] == expected
+    assert record == original
+
+
 def test_translated_html_and_canonical_filters_are_ready_without_js() -> None:
     config = {
         "translations": TRANSLATION,
