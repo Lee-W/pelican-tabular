@@ -333,12 +333,16 @@ def project_record(
     languages = {}
     originals = {}
     for field in fields:
+        field_candidates = candidates.get(field, {})
+        # Keep absent optional fields out of auto-detected table columns.
+        if field not in record and match_locale(locale, field_candidates) is None:
+            continue
         original = record.get(field)
         if original is not None and not isinstance(original, str):
             raise ValueError(f"{path}.{field}: only scalar text can be translated")
         originals[field] = original
         result[field], languages[field] = resolve_text(
-            candidates.get(field, {}),
+            field_candidates,
             locale,
             fallback=original or "",
             source_lang=source_lang,
