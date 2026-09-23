@@ -1,3 +1,9 @@
+## 0.9.2 (2026-09-23)
+
+### Fix
+
+- avoid empty columns for absent translated fields
+
 ## 0.9.1 (2026-09-22)
 
 ### Fix
