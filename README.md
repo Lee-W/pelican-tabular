@@ -348,6 +348,14 @@ different field.
 
 This renders a genre-level header row for each genre, with all books listed beneath it. The header is collapsible via this plugin's shared table core — see [CSS / JS](#css--js) below.
 
+Plain tables, database views and plugins using the shared renderer use the same
+group hierarchy: an accent band at the top level, lighter nested headings,
+indented row guides and inline subtotals. Grouped tables provide localized
+Expand all / Collapse all buttons. Search includes visible group titles and
+opens collapsed sections when the query changes; sorting stays within each
+leaf group. The hierarchy supports narrow screens, theme brand colors and
+manual or system light/dark selection, including without JavaScript.
+
 ### Derived group keys
 
 A `group_by` (and `group_summary_at`) field may use a `field:transform` form to group by a value derived from the field rather than its raw value. The only transform currently supported is `year`, which extracts the year from a date/datetime:
@@ -398,7 +406,9 @@ without OSM, include only the lightweight table assets in your theme:
 ```
 
 The optional `tabular.js` bundle is assembled from `tabular-core.js` and
-`tabular-views.js`; `tabular.css` imports `tabular-legacy.css`. Deploy the whole
+`tabular-views.js`; `tabular.css` imports `tabular-legacy.css`, which imports
+`tabular-groups.css`. Consumer bundles inline that shared group stylesheet.
+Deploy the whole
 generated directory. Plain tables retain the existing selectors, anchors,
 localized count settings and data format. **Starting with tabular 0.7.0 and
 OSM 0.16.1, tabular owns shared table behavior and styling.** Use OSM 0.16.1
@@ -489,8 +499,9 @@ rows, preserving links, selections and expanded details when resizing.
 Cells expose `data-field` for site-specific column styling, for example
 `#works td[data-field="rating"]`. Page headers, introductions, category names,
 field widths and domain-specific badge choices remain the site's responsibility.
-These defaults apply only to named views; ordinary `{% table %}` output and OSM
-place lists keep their existing appearance and assets. See the
+These view defaults apply only to named views. Group headings share the same
+hierarchy styling with ordinary `{% table %}` output and OSM place lists,
+which retain their existing asset URLs. See the
 [release and adoption notes](docs/releasing.md) when replacing site overrides.
 
 Control labels and live counts are marked `data-pagefind-ignore`; table content
@@ -521,7 +532,7 @@ The dependency direction is **pelican-osm → pelican-tabular**. The core never 
 - `pelican.plugins.tabular.views.render_view(rows, config, table_id=..., lang=...)` renders a complete interactive view without shortcode initialization.
 - `pelican.plugins.tabular.assets.register_assets()` registers a shared, idempotent Pelican asset-copy hook. Consumer plugins call this from their own `register()` even when the tabular shortcode plugin is not enabled.
 - `pelican.plugins.tabular.assets.bundle_legacy_assets(script, stylesheet)` adds the shared engine and legacy CSS to a consumer's freshly copied output files. Call it after each copy so rebuilds do not append repeated bundles. OSM uses this to preserve its existing asset URLs without including database controls.
-- `window.Tabular.initTable(table, {formatCount})` attaches the shared controller idempotently. OSM supplies its localized count formatter and attaches its own lightbox handler. `window.Tabular.init()` initializes tables and, when `tabular-views.js` is loaded, newly added views; the `tabular:ready` event handles asset loading order.
+- `window.Tabular.initTable(table, {formatCount})` attaches the shared controller idempotently and returns it. Its `setGroupsExpanded(boolean)` method expands or collapses all groups in one update. OSM supplies its localized count formatter and attaches its own search and lightbox handlers; group controls, title search, hierarchy metadata and CSS belong to Tabular. `window.Tabular.init()` initializes tables and, when `tabular-views.js` is loaded, newly added views; the `tabular:ready` event handles asset loading order.
 
 ## Development and example
 

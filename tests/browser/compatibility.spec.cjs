@@ -26,16 +26,19 @@ for (const subsite of ['', '/ja']) {
 }
 
 for (const scheme of ['light', 'dark']) {
-  test(`legacy palettes survive manual and system theme selection ${scheme}`, async ({page}) => {
+  test(`shared groups follow manual and system theme selection ${scheme}`, async ({page}) => {
     await page.emulateMedia({colorScheme:scheme});
     await page.goto('/compat-main-legacy.html');
-    const first = page.locator('.osm-place-list').last();
+    const first = page.locator('.compat-ranking .osm-place-list');
     const group = first.locator('.osm-group-header td').first();
-    await expect(group).toHaveCSS('background-color', scheme === 'light' ? 'rgb(201, 216, 243)' : 'rgb(61, 83, 121)');
+    await expect(group).toHaveCSS('color', scheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(34, 36, 38)');
+    const originalFill = await group.evaluate(cell => getComputedStyle(cell).backgroundImage);
+    expect(originalFill).toContain('linear-gradient');
     const opposite = scheme === 'dark' ? 'light' : 'dark';
     await page.evaluate(t => document.documentElement.className = `theme-${t}`, opposite);
-    await expect(group).toHaveCSS('background-color', opposite === 'light' ? 'rgb(201, 216, 243)' : 'rgb(61, 83, 121)');
-    await expect(first.locator('.osm-place-row td').first()).toHaveCSS('background-color', opposite === 'light' ? 'rgb(255, 255, 255)' : 'rgb(30, 30, 30)');
+    await expect(group).toHaveCSS('color', opposite === 'light' ? 'rgb(255, 255, 255)' : 'rgb(34, 36, 38)');
+    expect(await group.evaluate(cell => getComputedStyle(cell).backgroundImage)).not.toBe(originalFill);
+    await expect(first.locator('[data-tabular-group-row] td').first()).toHaveCSS('color', opposite === 'light' ? 'rgb(34, 36, 38)' : 'rgb(225, 227, 230)');
     await expect(first.locator('.osm-sort-icon').first()).toHaveCSS('opacity', opposite === 'light' ? '0.3' : '0.4');
   });
 }

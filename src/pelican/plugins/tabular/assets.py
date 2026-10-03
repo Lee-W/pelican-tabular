@@ -9,6 +9,7 @@ from typing import Any
 from pelican import signals
 
 STATIC = Path(__file__).parent / "static"
+GROUP_IMPORT = '@import url("./tabular-groups.css");'
 
 
 def bundle_legacy_assets(script: Path, stylesheet: Path) -> None:
@@ -26,7 +27,11 @@ def bundle_legacy_assets(script: Path, stylesheet: Path) -> None:
     stylesheet.write_text(
         stylesheet.read_text(encoding="utf-8")
         + "\n"
-        + (STATIC / "css/tabular-legacy.css").read_text(encoding="utf-8"),
+        + (STATIC / "css/tabular-legacy.css")
+        .read_text(encoding="utf-8")
+        .replace(GROUP_IMPORT, "")
+        + "\n"
+        + (STATIC / "css/tabular-groups.css").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 

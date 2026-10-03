@@ -1,0 +1,143 @@
+/* Shared group hierarchy for plain tables, database views and consumers.
+   Server-rendered attributes keep the hierarchy readable without JavaScript. */
+:root {
+  --tabular-group-default-bg: #fff;
+  --tabular-group-default-text: #243044;
+  --tabular-group-default-muted: #647086;
+  --tabular-group-default-border: #dce1e8;
+  --tabular-group-default-accent: #3159ab;
+  --tabular-group-accent-fallback: #3a69c9;
+  --tabular-group-accent-weight: 85%;
+  --tabular-group-accent-mix: black;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tabular-group-default-bg: #18202d; --tabular-group-default-text: #e4e9f2;
+    --tabular-group-default-muted: #a9b7ce; --tabular-group-default-border: #3b4960;
+    --tabular-group-default-accent: #a9c5ff;
+    --tabular-group-accent-fallback: #598fe8;
+    --tabular-group-accent-weight: 52%; --tabular-group-accent-mix: white;
+  }
+}
+:is(.theme-dark, .dark, [data-theme="dark"]) {
+  --tabular-group-default-bg: #18202d; --tabular-group-default-text: #e4e9f2;
+  --tabular-group-default-muted: #a9b7ce; --tabular-group-default-border: #3b4960;
+  --tabular-group-default-accent: #a9c5ff;
+  --tabular-group-accent-fallback: #598fe8;
+  --tabular-group-accent-weight: 52%; --tabular-group-accent-mix: white;
+}
+:is(.theme-light, [data-theme="light"]) {
+  --tabular-group-default-bg: #fff; --tabular-group-default-text: #243044;
+  --tabular-group-default-muted: #647086; --tabular-group-default-border: #dce1e8;
+  --tabular-group-default-accent: #3159ab;
+  --tabular-group-accent-fallback: #3a69c9;
+  --tabular-group-accent-weight: 85%; --tabular-group-accent-mix: black;
+}
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) {
+  --tabular-group-bg: var(--tabular-bg, var(--color-background-main, var(--tabular-group-default-bg)));
+  --tabular-group-text: var(--tabular-text, var(--color-content-main, var(--tabular-group-default-text)));
+  --tabular-group-border: var(--tabular-border, var(--color-background-contrast, var(--tabular-group-default-border)));
+  --tabular-group-accent: color-mix(in srgb,
+    var(--brand, var(--tabular-group-accent-fallback)) var(--tabular-group-accent-weight),
+    var(--tabular-group-accent-mix));
+  --tabular-group-indent: 20px;
+  --tabular-group-guide: color-mix(in srgb, var(--tabular-group-accent) 40%, var(--tabular-group-bg));
+  --tabular-group-level: 0;
+  --tabular-group-row-bg: var(--tabular-group-bg);
+  color: var(--tabular-group-text); background: var(--tabular-group-bg);
+}
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group] td:first-child {
+  --tabular-group-fill: color-mix(in srgb, var(--tabular-group-accent) 8%, var(--tabular-group-bg));
+  --tabular-group-header-bg: var(--tabular-group-fill);
+  --tabular-group-foreground: var(--tabular-group-text);
+  --tabular-group-offset: calc(var(--tabular-group-level) * var(--tabular-group-indent));
+  position: static; box-shadow: none; vertical-align: middle;
+  padding: 12px 14px 12px calc(var(--tabular-group-offset) + 16px);
+  background: linear-gradient(to right,
+    var(--tabular-group-bg) 0 var(--tabular-group-offset),
+    var(--tabular-group-guide) var(--tabular-group-offset) calc(var(--tabular-group-offset) + 3px),
+    var(--tabular-group-header-bg) calc(var(--tabular-group-offset) + 3px) 100%);
+  color: var(--tabular-group-foreground); line-height: 1.5;
+  border-block: 1px solid var(--tabular-group-border); border-inline: 0;
+}
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group="0"] td:first-child {
+  --tabular-group-fill: var(--tabular-group-accent);
+  --tabular-group-foreground: var(--tabular-group-bg);
+  --tabular-group-guide: var(--tabular-group-accent);
+  padding-block: 14px; border-top: 12px solid var(--tabular-group-bg); border-bottom: 0;
+}
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group="1"] td:first-child {
+  --tabular-group-fill: color-mix(in srgb, var(--tabular-group-accent) 20%, var(--tabular-group-bg));
+  border-top: 8px solid var(--tabular-group-bg);
+}
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group]:not([data-tabular-group="0"], [data-tabular-group="1"]) td:first-child { border-top: 0; }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group="3"] td:first-child { --tabular-group-fill: color-mix(in srgb, var(--tabular-group-accent) 4%, var(--tabular-group-bg)); }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group]:hover td:first-child { --tabular-group-header-bg: color-mix(in srgb, var(--tabular-group-foreground) 6%, var(--tabular-group-fill)); }
+[data-tabular-group-title] { font-size: 16px; font-weight: 600; color: inherit; overflow-wrap: anywhere; }
+[data-tabular-group="0"] [data-tabular-group-title] { font-size: 20px; font-weight: 700; }
+[data-tabular-group="1"] [data-tabular-group-title] { font-size: 17px; }
+[data-tabular-group-toggle] { display: inline-block; width: 20px; margin-inline-end: 4px; color: inherit; text-align: center; transition: transform .15s; }
+[data-tabular-group][aria-expanded="false"] [data-tabular-group-toggle] { transform: rotate(-90deg); }
+[data-tabular-group-count] {
+  display: inline-block; font-size: 14px; line-height: 1.5; color: inherit;
+  font-weight: 400; margin-block: 0; margin-inline-start: 12px;
+  padding: 2px 8px; border-radius: 4px; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--tabular-group-foreground) 10%, var(--tabular-group-header-bg));
+}
+[data-tabular-group] { cursor: pointer; }
+[data-tabular-group]:focus-visible { outline: 3px solid var(--tabular-group-accent); outline-offset: -3px; }
+/* Row depth comes from the shared renderer, including custom cell consumers. */
+[data-tabular-group-row="1"] { --tabular-group-level: 1; }
+[data-tabular-group-row="2"] { --tabular-group-level: 2; }
+[data-tabular-group-row="3"] { --tabular-group-level: 3; }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group="1"]) { --tabular-group-level: 1; }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group="2"]) { --tabular-group-level: 2; }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group="3"]) { --tabular-group-level: 3; }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) thead th:first-child { padding-inline-start: calc(var(--tabular-group-level) * var(--tabular-group-indent) + 40px); }
+table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) [data-tabular-group-row] td:first-child {
+  --tabular-group-offset: calc(var(--tabular-group-level) * var(--tabular-group-indent));
+  padding-inline-start: calc(var(--tabular-group-offset) + 40px); box-shadow: none;
+  background: linear-gradient(to right,
+    var(--tabular-group-bg) 0 var(--tabular-group-offset),
+    var(--tabular-group-guide) var(--tabular-group-offset) calc(var(--tabular-group-offset) + 3px),
+    var(--tabular-group-row-bg) calc(var(--tabular-group-offset) + 3px) 100%);
+}
+[data-tabular-group-row]:hover { --tabular-group-row-bg: color-mix(in srgb, var(--tabular-group-accent) 5%, var(--tabular-group-bg)); }
+[data-tabular-group-row]:target { --tabular-group-row-bg: color-mix(in srgb, var(--tabular-group-accent) 14%, var(--tabular-group-bg)); }
+.tabular-group-controls {
+  display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 12px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--tabular-border, var(--color-background-contrast, var(--tabular-group-default-border)));
+}
+.tabular-group-controls.tabular-group-controls button {
+  display: inline-block; min-height: 44px; width: auto; max-width: 100%;
+  font: inherit; font-size: 15px; line-height: 1.5; margin: 0; padding: 6px 0;
+  color: var(--tabular-muted, var(--color-content-secondary, var(--tabular-group-default-muted)));
+  border: 0; border-radius: 4px; box-shadow: none; background: transparent; cursor: pointer;
+}
+.tabular-group-controls button:disabled { opacity: .45; cursor: default; }
+.tabular-group-controls button:focus-visible { outline: 3px solid var(--tabular-accent, var(--brand, var(--tabular-group-default-accent))); outline-offset: 3px; }
+@media (max-width: 680px) {
+  table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) { --tabular-group-indent: 12px; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]),
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) tbody { display: block; width: 100%; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) :is(thead, thead tr) { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) th { display: block; position: static; border: 0; padding: 4px 0; box-shadow: none; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) thead th:first-child { padding-inline-start: 0; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) :is(tr[data-tabular-group], tr[data-tabular-group] td),
+  .tabular-view[data-layout="responsive"] table:has(> tbody > tr[data-tabular-group]) :is(tr[data-tabular-group], tr[data-tabular-group] td) { display: block; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) tr[data-tabular-group-row]:not([data-detail]),
+  .tabular-view[data-layout="responsive"] table:has(> tbody > tr[data-tabular-group]) tr[data-tabular-group-row]:not([data-detail]) {
+    display: flex; flex-direction: column;
+    margin-inline-start: calc(var(--tabular-group-level) * var(--tabular-group-indent));
+    padding: 12px 12px 16px 37px; border-top: 0;
+    border-inline-start: 3px solid var(--tabular-group-guide); border-bottom: 1px solid var(--tabular-group-border);
+  }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) tr[data-tabular-group-row]:not([data-detail]) td {
+    display: block; position: static; width: auto; min-width: 0;
+    padding: 4px 0; border: 0; background: transparent; box-shadow: none;
+  }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) tr[data-tabular-group-row] td[data-label]:not([data-field="name"])::before { content: attr(data-label) ": "; color: var(--tabular-group-default-muted); font-size: 15px; }
+  table.osm-place-list:has(> tbody > tr[data-tabular-group]) tr[data-tabular-group-row] td:empty { display: none; }
+  .tabular-view[data-layout="responsive"] table:has(> tbody > tr[data-tabular-group]) [data-tabular-group-row] td:first-child { padding-inline-start: 0; background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { [data-tabular-group-toggle] { transition: none; } }

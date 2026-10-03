@@ -24,15 +24,20 @@ args = parser.parse_args()
 if args.osm_source:
     sys.path.insert(0, str(args.osm_source.resolve() / "src"))
 
-from pelican.plugins.tabular.assets import bundle_legacy_assets  # noqa: E402
+from pelican.plugins.tabular.assets import (  # noqa: E402
+    bundle_legacy_assets,
+    copy_assets,
+)
 from pelican.plugins.tabular.tabular import (  # noqa: E402
     _process_content,
+    _render_table_html,
     _resolve_settings,
 )
 from pelican.plugins.tabular.views import render_view  # noqa: E402
 
 out = ROOT / "examples/database/output"
 out.mkdir(parents=True, exist_ok=True)
+copy_assets(SimpleNamespace(settings={"OUTPUT_PATH": str(out)}))
 settings = runpy.run_path(str(ROOT / "examples/database/pelicanconf.py"))
 config = settings["TABULAR_VIEWS"]["works"]
 rows = yaml.safe_load((ROOT / "examples/database/content/data/works.yaml").read_text())
@@ -177,6 +182,59 @@ presentation.append(
     '<details class="outside-details"><summary>Article note</summary>'
     "<p>Theme styling stays here.</p></details>"
     "</main></body></html>"
+)
+
+# One hierarchy exercises native plain tables and both database layouts.
+group_rows = [
+    {"country": "Taiwan", "city": "Taipei", "venue": "Xinyi", "hall": 2},
+    {"country": "Taiwan", "city": "Taipei", "venue": "Xinyi", "hall": 1},
+    {"country": "Taiwan", "city": "Taipei", "venue": "Songren", "hall": 7},
+    {"country": "Taiwan", "city": "Taichung", "venue": "Tiger City", "hall": 5},
+    {"country": "Taiwan", "city": "Taichung", "venue": "Tiger City", "hall": 3},
+    {"country": "Japan", "city": "Tokyo", "venue": "Ikebukuro", "hall": 6},
+]
+for row in group_rows:
+    row.update(capacity=100 + row["hall"], notes="Accessible entrance")
+group_fields = ["country", "city", "venue"]
+plain_group = _render_table_html(
+    group_rows,
+    fields=["hall", "capacity"],
+    field_labels={"hall": "Hall", "capacity": "Capacity"},
+    hidden=set(),
+    sort_by=None,
+    sort_order="asc",
+    count_template="{n} rows",
+    group_by=group_fields,
+    group_summary_at=group_fields,
+    aggregate={},
+    group_count_template="{n} rows",
+    lang="zh-Hant",
+)
+group_views = []
+for layout, language in (("responsive", "en"), ("table", "ja")):
+    group_views.append(
+        render_view(
+            group_rows,
+            {
+                "fields": ["hall", "capacity"],
+                "field_labels": {"hall": "Hall", "capacity": "Capacity"},
+                "field_types": {"hall": "number", "capacity": "number"},
+                "display": {"layout": layout, "detail_fields": ["notes"]},
+            },
+            table_id=layout,
+            lang=language,
+            group_by=group_fields,
+            group_summary_at=group_fields,
+        )
+    )
+(out / "groups.html").write_text(
+    head + '<link rel="stylesheet" href="/attila.css">'
+    '<body class="site-main"><main class="post-content">'
+    '<div id="plain">'
+    + plain_group
+    + "</div>"
+    + "".join(group_views)
+    + "</main></body></html>"
 )
 
 # Existing themes load only OSM URLs. A named view injects its own optional

@@ -115,12 +115,6 @@
 .tabular-view .tabular-detail dd { margin: .25em 0 0; overflow-wrap: anywhere; }
 .tabular-view .tabular-empty { grid-column: 1 / -1; text-align: center; padding: 2em 1em; color: var(--tabular-muted); }
 .tabular-view .tabular-error { grid-area: error; color: #ac2a3e; margin: 12px 0 0; }
-.tabular-view .tabular-group-header { cursor: pointer; background: var(--tabular-surface); }
-.tabular-view .tabular-group-count { margin-inline-start: .75em; color: var(--tabular-muted); font-size: var(--tabular-label-size); }
-.tabular-view .tabular-group-header-toggle { display: inline-block; margin-inline-end: .5em; }
-.tabular-view .tabular-group-header--collapsed .tabular-group-header-toggle { transform: rotate(-90deg); }
-.tabular-view .tabular-group-header--depth-1 td { padding-inline-start: 1.5em !important; }
-.tabular-view .tabular-group-header--depth-2 td { padding-inline-start: 2.5em !important; }
 .tabular-view .tabular-table th .tabular-sort-button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; padding: 0; text-align: start; min-height: 24px; }
 .tabular-view .tabular-sort-icon { margin-inline-start: .4em; font-size: .75em; }
 .tabular-view .tabular-sort-icon[data-active=""] { opacity: .5; }
@@ -157,11 +151,8 @@
   .tabular-view[data-layout="responsive"]:is(:lang(zh), :lang(ja)) .tabular-meta::before { content: attr(data-label) "："; margin-inline-end: 0; }
   .tabular-view[data-layout="responsive"] .tabular-row .tabular-desktop { display: none; }
   .tabular-view[data-layout="responsive"] .tabular-detail,
-  .tabular-view[data-layout="responsive"] .tabular-detail td,
-  .tabular-view[data-layout="responsive"] .tabular-group-header,
-  .tabular-view[data-layout="responsive"] .tabular-group-header td { display: block; }
+  .tabular-view[data-layout="responsive"] .tabular-detail td { display: block; }
   .tabular-view[data-layout="responsive"] .tabular-detail dl { grid-template-columns: minmax(0, 1fr); }
-  .tabular-view[data-layout="responsive"] .tabular-group-header { margin-top: 1em; }
 }
 
 @media (prefers-color-scheme: dark) {

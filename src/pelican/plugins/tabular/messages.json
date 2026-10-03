@@ -35,7 +35,9 @@
         "one": "{n} row",
         "other": "{n} rows"
       }
-    }
+    },
+    "expand_all": "Expand all",
+    "collapse_all": "Collapse all"
   },
   "ja": {
     "search": "検索",
@@ -55,7 +57,9 @@
     "legend": "説明",
     "group": "件",
     "group_count": "{n} 件",
-    "row_count": "{n} 件"
+    "row_count": "{n} 件",
+    "expand_all": "すべて展開",
+    "collapse_all": "すべて折りたたむ"
   },
   "zh-Hant": {
     "search": "搜尋",
@@ -75,6 +79,8 @@
     "legend": "說明",
     "group": "筆",
     "group_count": "{n} 筆",
-    "row_count": "{n} 筆資料"
+    "row_count": "{n} 筆資料",
+    "expand_all": "全部展開",
+    "collapse_all": "全部收合"
   }
 }
