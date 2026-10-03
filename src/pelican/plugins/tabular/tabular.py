@@ -1032,7 +1032,11 @@ def _render_table_html(
         return anchor
 
     # Retain legacy classes/anchors; tabular.js owns the shared interaction.
-    attrs = component_attrs(lang, {"row_count": count_template}) if lang else ""
+    attrs = (
+        component_attrs(lang, {**CATALOG.resolve(lang), "row_count": count_template})
+        if lang
+        else ""
+    )
     parts: list[str] = [f'<div class="osm-place-list-wrapper"{attrs}>']
     parts.append('<table class="osm-place-list">')
     parts.append("<thead><tr>")
@@ -1058,7 +1062,13 @@ def _render_table_html(
             language = value_lang(row, path)
             if path in ref_ctx.ref_fields and isinstance(row.get(path), dict):
                 language = value_lang(row[path], ref_ctx.text_field)
-            cells.append(f"<td{language}>{cell}</td>")
+            labels = (
+                f' data-label="{html.escape(label, quote=True)}"'
+                f' data-field="{html.escape(path, quote=True)}"'
+                if group_summary_at
+                else ""
+            )
+            cells.append(f"<td{language}{labels}>{cell}</td>")
         cells.append("</tr>")
         return "\n".join(cells)
 

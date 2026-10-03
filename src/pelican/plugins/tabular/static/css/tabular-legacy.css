@@ -1,3 +1,5 @@
+@import url("./tabular-groups.css");
+
 :root {
   --osm-group-header-bg: #e8f0fe;
   --osm-group-header-bg-0: #c9d8f3;
@@ -122,103 +124,6 @@
 
 .osm-place-list tbody tr:hover td:first-child {
   background: var(--osm-table-row-hover-bg);
-}
-
-/* --------------------------------------------------------------------------
-   Place list — group_summary_at header rows
-   Inserted between data rows when group_summary_at is set. The <td> spans
-   the whole row so the title reads as a section heading rather than a row.
-   -------------------------------------------------------------------------- */
-.osm-place-list .osm-group-header td {
-  background: var(--osm-group-header-bg);
-  color: var(--osm-group-header-color);
-  border-bottom: 2px solid var(--osm-group-header-border-color);
-  padding: 0.6em 0.8em;
-}
-
-/* Suppress the body-row hover so the heading colour stays stable */
-.osm-place-list tbody tr.osm-group-header:hover td {
-  background: var(--osm-group-header-bg);
-}
-
-/* The header td would otherwise inherit the sticky-first-column rules; the
-   row already spans the full table width so the right-edge shadow is wrong. */
-.osm-place-list .osm-group-header td:first-child {
-  position: static;
-  box-shadow: none;
-  background: var(--osm-group-header-bg);
-}
-.osm-place-list tbody tr.osm-group-header:hover td:first-child {
-  background: var(--osm-group-header-bg);
-}
-
-.osm-group-header-title {
-  font-weight: 700;
-  font-size: 1.05em;
-}
-
-/* Force the count onto its own line below the title */
-.osm-group-count {
-  display: block;
-  margin-top: 0.15em;
-  color: var(--osm-group-count-color);
-  font-size: 0.85em;
-  font-weight: normal;
-}
-
-/* Multi-level group_summary_at: scale typography down at each depth and
-   indent so the hierarchy is visible at a glance. */
-.osm-place-list .osm-group-header--depth-0 .osm-group-header-title {
-  font-size: 1.2em;
-}
-.osm-place-list .osm-group-header--depth-1 .osm-group-header-title {
-  font-size: 1.05em;
-}
-.osm-place-list .osm-group-header--depth-2 .osm-group-header-title {
-  font-size: 0.95em;
-}
-.osm-place-list .osm-group-header--depth-3 .osm-group-header-title {
-  font-size: 0.9em;
-}
-.osm-place-list .osm-group-header--depth-1 td {
-  padding-left: 1.6em;
-}
-.osm-place-list .osm-group-header--depth-2 td {
-  padding-left: 2.8em;
-}
-.osm-place-list .osm-group-header--depth-3 td {
-  padding-left: 4em;
-}
-
-/* Per-depth backgrounds for discoverability. We redeclare the base
-   --osm-group-header-bg variable on each td so every existing rule that
-   references it (hover, sticky-first-cell) picks up the depth-specific
-   color via the cascade — no need to fork those rules. */
-.osm-place-list .osm-group-header--depth-0 td {
-  --osm-group-header-bg: var(--osm-group-header-bg-0);
-}
-.osm-place-list .osm-group-header--depth-1 td {
-  --osm-group-header-bg: var(--osm-group-header-bg-1);
-}
-.osm-place-list .osm-group-header--depth-2 td {
-  --osm-group-header-bg: var(--osm-group-header-bg-2);
-}
-.osm-place-list .osm-group-header--depth-3 td {
-  --osm-group-header-bg: var(--osm-group-header-bg-3);
-}
-
-/* Click-to-collapse affordance */
-.osm-place-list .osm-group-header {
-  cursor: pointer;
-}
-.osm-group-header-toggle {
-  display: inline-block;
-  margin-right: 0.4em;
-  color: var(--osm-group-count-color);
-  transition: transform 0.15s ease;
-}
-.osm-place-list .osm-group-header--collapsed .osm-group-header-toggle {
-  transform: rotate(-90deg);
 }
 
 /* Hide rows whose ancestor header is collapsed (managed by JS). */

@@ -81,7 +81,8 @@ def render_table_body(
                 )
             )
             count = (
-                f'<span class="{css_prefix}-group-count"{template_attr}>'
+                f'<span class="{css_prefix}-group-count"'
+                f" data-tabular-group-count{template_attr}>"
                 + (
                     html.escape(
                         format_message(group_count_template, lang, n=counts[prefix])
@@ -97,13 +98,21 @@ def render_table_body(
             parts.append(
                 f'<tr class="{css_prefix}-group-header'
                 f' {css_prefix}-group-header--depth-{depth}"'
-                f' data-depth="{depth}" id="{html.escape(anchor, quote=True)}">'
+                f' data-depth="{depth}" data-tabular-group="{depth}"'
+                f' style="--tabular-group-level:{depth}"'
+                f' id="{html.escape(anchor, quote=True)}">'
                 f'<td colspan="{column_count}">'
                 f'<span class="{css_prefix}-group-header-toggle"'
-                ' aria-hidden="true">▾</span>'
-                f'<strong class="{css_prefix}-group-header-title">'
-                f"{html.escape(str(value))}</strong>{count}{suffix}</td></tr>"
+                ' data-tabular-group-toggle aria-hidden="true">▾</span>'
+                f'<strong class="{css_prefix}-group-header-title"'
+                f" data-tabular-group-title>{html.escape(str(value))}</strong>"
+                f"{count}{suffix}</td></tr>"
             )
         previous = key
-        parts.append(render_row(row))
+        rendered = render_row(row)
+        if group_summary_at:
+            rendered = rendered.replace(
+                "<tr", f'<tr data-tabular-group-row="{len(group_summary_at) - 1}"', 1
+            )
+        parts.append(rendered)
     return "\n".join(parts)

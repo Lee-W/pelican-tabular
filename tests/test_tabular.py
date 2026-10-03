@@ -1146,7 +1146,7 @@ def test_render_group_by_year_creates_year_header() -> None:
     assert ">2026</strong>" in html
     assert ">2025</strong>" in html
     # date column is independent of the derived year grouping
-    assert "<td>2026-06-02</td>" in html
+    assert 'data-field="date">2026-06-02</td>' in html
 
 
 # ---------------------------------------------------------------------------
@@ -2048,8 +2048,8 @@ def test_process_content_group_by_nested_ref_field(tmp_path: Path) -> None:
     html = content._content
     assert "osm-group-header" in html
     assert "台北市" in html
-    assert "<td>Moondog</td>" in html
-    assert "<td>南港展覽館1館</td>" in html
+    assert 'data-field="venue">Moondog</td>' in html
+    assert 'data-field="venue">南港展覽館1館</td>' in html
 
 
 def test_process_content_ref_text_field_override(tmp_path: Path) -> None:

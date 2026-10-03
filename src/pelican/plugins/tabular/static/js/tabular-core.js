@@ -151,11 +151,13 @@
         blocks.push(group);
       } else if (!row.classList.contains("tabular-detail")) {
         const id = row.dataset.row ?? String(entries.length);
-        const record = records.get(id) || {
-          id, search: row.textContent.toLowerCase(),
+        const source = records.get(id) || {
+          id, search: row.textContent,
           values: { tags: [...row.querySelectorAll(".osm-badge--tag")].map((b) => b.textContent.trim()) },
           sort: Object.fromEntries([...row.cells].map((cell, i) => [String(i), legacyValue(cell)])),
         };
+        const record = { ...source, search: [source.search, ...stack.map((g) =>
+          g.row.querySelector(`.${prefix}-group-header-title`)?.textContent || "")].join(" ") };
         const next = row.nextElementSibling;
         const detail = next && next.classList.contains("tabular-detail") ? next : null;
         const entry = { row, detail, record, expandButton: row.querySelector("[data-expand]"), groups: [...stack],
@@ -178,7 +180,13 @@
     const groupCounts = new Map(groups.map((g) => [g, g.row.querySelector(`.${prefix}-group-count`)]));
     const originalCounts = new Map(groups.map((g) => [g, groupCounts.get(g)?.textContent || ""]));
     let lastOrder = null;
+    let lastQuery = "";
+    const groupButtons = [];
     function update(writeURL = false) {
+      if (state.q.trim() && state.q !== lastQuery) {
+        groups.forEach((group) => { group.collapsed = false; });
+      }
+      lastQuery = state.q;
       const shown = entries.filter((e) => matches(e.record, state, config.filters));
       const matched = new Set(shown);
       entries.forEach((entry) => {
@@ -208,6 +216,9 @@
             if (label.innerHTML !== markup) label.innerHTML = markup;
           } else label.textContent = originalCounts.get(g).replace(/\d+/, String(n));
         }
+      });
+      groupButtons.forEach(([button, expanded]) => {
+        button.disabled = groups.every((g) => g.collapsed === !expanded);
       });
       const orderKey = JSON.stringify([state.sort, state.order]);
       if (orderKey !== lastOrder) {
@@ -241,6 +252,25 @@
     }
     function change() {
       update(true);
+    }
+    function setGroupsExpanded(expanded) {
+      groups.forEach((group) => { group.collapsed = !expanded; });
+      update();
+    }
+    if (groups.length) {
+      const controls = document.createElement("div");
+      controls.className = "tabular-group-controls";
+      for (const [key, fallback, expanded] of [
+        ["expand_all", "Expand all", true], ["collapse_all", "Collapse all", false],
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = config.words[key] || fallback;
+        button.addEventListener("click", () => setGroupsExpanded(expanded));
+        controls.append(button);
+        groupButtons.push([button, expanded]);
+      }
+      table.before(controls);
     }
     function toggleSort(key) {
       if (state.sort !== key) { state.sort = key; state.order = "asc"; }
@@ -316,7 +346,7 @@
     const syncControls = options.mountControls?.({
       root, config, getState: () => state, update, change, expanded,
     });
-    const controller = { options, update, getState: () => state };
+    const controller = { options, update, setGroupsExpanded, getState: () => state };
     controllers.set(table, controller);
     update(); expandToHash();
     return controller;
