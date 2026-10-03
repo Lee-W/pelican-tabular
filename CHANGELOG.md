@@ -1,3 +1,9 @@
+## 0.10.0 (2026-10-03)
+
+### Feat
+
+- improve group hierarchy across tables
+
 ## 0.9.2 (2026-09-23)
 
 ### Fix
