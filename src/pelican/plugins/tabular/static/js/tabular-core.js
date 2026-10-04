@@ -156,7 +156,7 @@
           values: { tags: [...row.querySelectorAll(".osm-badge--tag")].map((b) => b.textContent.trim()) },
           sort: Object.fromEntries([...row.cells].map((cell, i) => [String(i), legacyValue(cell)])),
         };
-        const record = { ...source, search: [source.search, ...stack.map((g) =>
+        const record = { ...source, search: [source.search, row.dataset.tabularSearch || "", ...stack.map((g) =>
           g.row.querySelector(`.${prefix}-group-header-title`)?.textContent || "")].join(" ") };
         const next = row.nextElementSibling;
         const detail = next && next.classList.contains("tabular-detail") ? next : null;

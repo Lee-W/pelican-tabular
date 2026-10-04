@@ -486,6 +486,8 @@ URLs use repeated parameters for multiple selections, for example `?works.status
 
 Only fields needed for display, details, search, filters and sorting are embedded in the page. **A field used for searching is public even if it is not a visible column.** Use `hidden` for presentation, not for protecting confidential data.
 
+Integrations using the shared table controller can add `data-tabular-search` to each data row to supply a complete record search index. It supplements rendered row text and group titles, so custom and nested field values can be searched even when they are not visible columns.
+
 Colors can be themed through scoped `.tabular-view` CSS variables such as `--tabular-bg`, `--tabular-text`, `--tabular-border` and `--tabular-accent`. The defaults use Attila's `--brand` and `--color-background-*` / `--color-content-*` tokens when present, with standalone fallbacks. System dark mode, `.theme-dark` / `.theme-light`, `.dark` and `data-theme` are supported.
 
 The view inherits the theme's font family and defaults to 18px work/item titles,
