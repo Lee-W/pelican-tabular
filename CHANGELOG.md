@@ -1,3 +1,9 @@
+## 0.10.1 (2026-10-04)
+
+### Fix
+
+- preserve table width and group text contrast
+
 ## 0.10.0 (2026-10-03)
 
 ### Feat
