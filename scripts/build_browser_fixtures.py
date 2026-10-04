@@ -207,7 +207,7 @@ plain_group = _render_table_html(
     group_by=group_fields,
     group_summary_at=group_fields,
     aggregate={},
-    group_count_template="{n} rows",
+    group_count_template="<b>{n}</b> rows",
     lang="zh-Hant",
 )
 group_views = []
@@ -230,9 +230,11 @@ for layout, language in (("responsive", "en"), ("table", "ja")):
 (out / "groups.html").write_text(
     head + '<link rel="stylesheet" href="/attila.css">'
     '<body class="site-main"><main class="post-content">'
-    '<div id="plain">'
-    + plain_group
-    + "</div>"
+    + plain_group.replace(
+        '<div class="osm-place-list-wrapper"',
+        '<div id="plain" class="osm-place-list-wrapper"',
+        1,
+    )
     + "".join(group_views)
     + "</main></body></html>"
 )

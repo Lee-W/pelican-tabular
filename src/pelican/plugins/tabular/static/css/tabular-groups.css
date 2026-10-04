@@ -74,6 +74,9 @@ table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) 
 table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group="3"] td:first-child { --tabular-group-fill: color-mix(in srgb, var(--tabular-group-accent) 4%, var(--tabular-group-bg)); }
 table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) tr[data-tabular-group]:hover td:first-child { --tabular-group-header-bg: color-mix(in srgb, var(--tabular-group-foreground) 6%, var(--tabular-group-fill)); }
 [data-tabular-group-title] { font-size: 16px; font-weight: 600; color: inherit; overflow-wrap: anywhere; }
+/* Article themes may assign their own text color to strong/b inside headers. */
+table:is(.osm-place-list, .tabular-table) tr[data-tabular-group]
+  :is([data-tabular-group-title], [data-tabular-group-title] *, [data-tabular-group-count], [data-tabular-group-count] *) { color: inherit; }
 [data-tabular-group="0"] [data-tabular-group-title] { font-size: 20px; font-weight: 700; }
 [data-tabular-group="1"] [data-tabular-group-title] { font-size: 17px; }
 [data-tabular-group-toggle] { display: inline-block; width: 20px; margin-inline-end: 4px; color: inherit; text-align: center; transition: transform .15s; }
@@ -82,7 +85,7 @@ table:is(.osm-place-list, .tabular-table):has(> tbody > tr[data-tabular-group]) 
   display: inline-block; font-size: 14px; line-height: 1.5; color: inherit;
   font-weight: 400; margin-block: 0; margin-inline-start: 12px;
   padding: 2px 8px; border-radius: 4px; font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--tabular-group-foreground) 10%, var(--tabular-group-header-bg));
+  background: color-mix(in srgb, var(--tabular-group-foreground) 6%, var(--tabular-group-fill));
 }
 [data-tabular-group] { cursor: pointer; }
 [data-tabular-group]:focus-visible { outline: 3px solid var(--tabular-group-accent); outline-offset: -3px; }

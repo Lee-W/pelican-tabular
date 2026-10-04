@@ -78,7 +78,7 @@ for (const width of [390, 1200]) {
             cells.slice(0, 3).map(cell => parseFloat(getComputedStyle(cell).paddingInlineStart)));
           expect(padding[0]).toBeLessThan(padding[1]);
           expect(padding[1]).toBeLessThan(padding[2]);
-          const palette = await root.locator('[data-tabular-group] td').evaluateAll(cells =>
+          const readPalette = () => root.locator('[data-tabular-group] td').evaluateAll(cells =>
             cells.slice(0, 3).map(cell => {
               const style = getComputedStyle(cell);
               const canvas = document.createElement('canvas').getContext('2d');
@@ -87,8 +87,14 @@ for (const width of [390, 1200]) {
                 return Array.from(canvas.getImageData(0, 0, 1, 1).data).slice(0, 3);
               }
               const stops = [...style.backgroundImage.matchAll(/(?:color\(srgb [^)]+\)|rgba?\([^)]+\))/g)];
-              return [rgb(style.color), rgb(stops.at(-1)[0])];
+              const title = cell.querySelector('[data-tabular-group-title]');
+              const count = cell.querySelector('[data-tabular-group-count]');
+              const textColors = [title, count, ...count.querySelectorAll('*')]
+                .map(el => rgb(getComputedStyle(el).color));
+              return [textColors[0], rgb(stops.at(-1)[0]), textColors,
+                rgb(getComputedStyle(count).backgroundColor)];
             }));
+          const palette = await readPalette();
           function luminance(rgb) {
             return rgb.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
               .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
@@ -97,7 +103,17 @@ for (const width of [390, 1200]) {
             const [high, low] = [luminance(a), luminance(b)].sort((a, b) => b - a);
             return (high + .05) / (low + .05);
           }
-          palette.forEach(([text, background]) => expect(contrast(text, background)).toBeGreaterThanOrEqual(4.5));
+          palette.forEach(([text, background, textColors, countBackground]) => {
+            expect(contrast(text, background)).toBeGreaterThanOrEqual(4.5);
+            textColors.forEach(color => expect(color).toEqual(text));
+            expect(contrast(text, countBackground)).toBeGreaterThanOrEqual(4.5);
+          });
+          await root.locator('[data-tabular-group]').first().hover();
+          (await readPalette()).forEach(([text, background, , countBackground]) => {
+            expect(contrast(text, background)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(text, countBackground)).toBeGreaterThanOrEqual(4.5);
+          });
+          await page.mouse.move(0, 0);
           const key = `${id}-${theme}`;
           if (brand === 'main') brandColors.set(key, palette[0][1]);
           else expect(palette[0][1]).not.toEqual(brandColors.get(key));
@@ -120,6 +136,45 @@ for (const width of [390, 1200]) {
         await page.screenshot({ path: testInfo.outputPath(`${brand}-${theme}.png`), fullPage: true });
       }
     }
+  });
+}
+
+for (const width of [390, 1200]) {
+  test(`tables fill a flex article and keep their width when filtering at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/groups.html');
+    await page.evaluate(width => {
+      const article = document.querySelector('.post-content');
+      Object.assign(article.style, { display: 'flex', flexDirection: 'column', alignItems: 'center' });
+      // Consuming sites widen plain tables with negative margins on desktop.
+      if (width > 1000) document.querySelector('#plain').style.marginInline = '-40px';
+    }, width);
+    for (const id of ['plain', 'responsive', 'table']) {
+      const root = page.locator(`#${id}`);
+      const expectedWidth = await root.evaluate(el => {
+        const parent = el.parentElement;
+        const style = getComputedStyle(parent), own = getComputedStyle(el);
+        return parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+          - parseFloat(own.marginLeft) - parseFloat(own.marginRight);
+      });
+      async function expectWidth() {
+        expect((await root.boundingBox()).width).toBeCloseTo(expectedWidth, 0);
+        expect((await root.locator('table').boundingBox()).width).toBeCloseTo(expectedWidth, 0);
+      }
+      await expectWidth();
+      await root.locator('.tabular-group-controls button').nth(1).click();
+      await expectWidth();
+      for (const query of ['Ikebukuro', 'no-such-venue', '']) {
+        if (id === 'plain') await root.locator('table').evaluate((table, query) => {
+          const controller = Tabular.initTable(table);
+          controller.getState().q = query;
+          controller.update();
+        }, query);
+        else await root.getByRole('searchbox').fill(query);
+        await expectWidth();
+      }
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
 
