@@ -1,3 +1,9 @@
+## 0.10.2 (2026-10-04)
+
+### Fix
+
+- search complete record values supplied by table consumers
+
 ## 0.10.1 (2026-10-04)
 
 ### Fix
