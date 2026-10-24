@@ -554,3 +554,7 @@ Serve `examples/database/output` and open `database.html` to explore the example
 
 See the [implementation verification record](docs/verification.md) for results,
 measurement limits and the coordinated OSM release order.
+
+## License
+
+MIT © Wei Lee
