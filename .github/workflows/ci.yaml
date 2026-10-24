@@ -36,10 +36,10 @@ jobs:
         run: uv sync --locked --no-sources --python ${{ matrix.python-version }}
 
       - name: Lint
-        run: uv run poe lint
+        run: uv run --locked poe lint
 
       - name: Test
-        run: uv run poe cover
+        run: uv run --locked poe cover
 
   browser:
     runs-on: ubuntu-latest
