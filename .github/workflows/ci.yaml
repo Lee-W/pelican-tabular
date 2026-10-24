@@ -24,12 +24,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
-          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          version: "latest"
+
+      - name: Install Python
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --no-sources --python ${{ matrix.python-version }}
 
       - name: Lint
         run: uv run poe lint
@@ -41,14 +45,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
+          enable-cache: true
+          version: "latest"
           python-version: "3.13"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-      - run: uv sync --group dev
+      - run: uv sync --locked --no-sources --group dev
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
