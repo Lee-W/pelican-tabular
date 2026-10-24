@@ -16,12 +16,11 @@ jobs:
         with:
           token: "${{ secrets.PERSONAL_ACCESS_TOKEN }}"
           fetch-depth: 0
-
       - name: Set up Python
         uses: astral-sh/setup-uv@v10.3.2
-
+      - name: Verify published dependencies and release lockfile
+        run: uv sync --locked --no-sources --no-dev
       - name: Build
-
         run: uv build
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
